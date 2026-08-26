@@ -10,12 +10,17 @@ const NO_TEXT = 'No additional text'
 // Editable label: a single click selects the row, a double click renames it.
 // Rename is inline rather than a dialog because the title *is* the filename,
 // and seeing it in place is the only cue that renaming moves the file.
-function Label({ value, className, onRename }) {
+// `locked` is for the sticky section, which the server refuses to rename —
+// better not to offer the edit than to let it fail on save.
+function Label({ value, className, onRename, locked }) {
   const [draft, setDraft] = useState(null)
 
-  if (draft === null) {
+  if (draft === null || locked) {
     return (
-      <span className={className} onDoubleClick={(e) => { e.stopPropagation(); setDraft(value) }}>
+      <span
+        className={className}
+        onDoubleClick={(e) => { e.stopPropagation(); if (!locked) setDraft(value) }}
+      >
         {value}
       </span>
     )
@@ -95,16 +100,24 @@ export default function Sidebar({
                 <Label
                   className="section-name"
                   value={s.name}
+                  locked={s.sticky}
                   onRename={(name) => onRenameSection(s, name)}
                 />
-                <button
-                  type="button"
-                  className="row-x"
-                  title="Delete section"
-                  onClick={(e) => { e.stopPropagation(); onDeleteSection(s) }}
-                >
-                  ✕
-                </button>
+                {/* The sticky section is the app's own, not the user's: the
+                    Streak widget writes here and would have nowhere to put a
+                    note if it went away. Its notes are still deletable. */}
+                {s.sticky ? (
+                  <span className="row-lock" title="Streak's sticky notes live here">📌</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="row-x"
+                    title="Delete section"
+                    onClick={(e) => { e.stopPropagation(); onDeleteSection(s) }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
             {sections.length === 0 && <div className="empty-hint">No sections yet</div>}
@@ -154,12 +167,22 @@ export default function Sidebar({
             type="button"
             className="add-btn"
             disabled={!active}
-            title={active ? 'New page' : 'Create a section first'}
-            onClick={(e) => { e.stopPropagation(); setPicking((v) => !v) }}
+            title={
+              !active ? 'Create a section first'
+                : active.sticky ? 'New sticky note'
+                : 'New page'
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              // Only sticky notes belong in the sticky section, so there is
+              // nothing to choose between — skip straight to making one.
+              if (active?.sticky) onAddPage('markdown')
+              else setPicking((v) => !v)
+            }}
           >
             <span className="plus">+</span> Page
           </button>
-          {picking && (
+          {picking && !active?.sticky && (
             <NewPageMenu
               onClose={() => setPicking(false)}
               onPick={(kind) => { setPicking(false); onAddPage(kind) }}

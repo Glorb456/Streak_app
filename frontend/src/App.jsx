@@ -7,6 +7,7 @@ import Calendar from './components/Calendar.jsx'
 import TaskModal from './components/TaskModal.jsx'
 import SettingsMenu from './components/SettingsMenu.jsx'
 import DayTaskList from './components/DayTaskList.jsx'
+import StickyNotes from './components/StickyNotes.jsx'
 
 export default function App() {
   const now = new Date()
@@ -290,6 +291,10 @@ export default function App() {
         onReorder={reorderDay}
         onDragActive={setDragging}
       />
+
+      {/* Floats over everything, draggable, and stores its notes in Streak
+          Notes. Outside the modal branch so it stays reachable either way. */}
+      <StickyNotes />
 
       {modal && (
         <TaskModal

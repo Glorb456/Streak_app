@@ -11,7 +11,7 @@ def test_markdown_page_is_a_real_md_file(client, section, notebook):
     assert (notebook / "Other" / "PC ideas.md").is_file()
 
 
-def test_drawing_page_is_a_separate_kind(client, section, notebook):
+def test_drawing_page_is_a_separate_kind(client, section, notebook, pages_in):
     r = client.post(
         "/api/notes/pages",
         json={"section_id": section, "title": "Sketch", "kind": "drawing"},
@@ -20,7 +20,7 @@ def test_drawing_page_is_a_separate_kind(client, section, notebook):
     assert (notebook / "Other" / "Sketch.draw.json").is_file()
     # The '.draw.json' suffix must win over the '.json' one, or a drawing
     # would be filed as some other kind — or as no page at all.
-    page = client.get("/api/notes/tree").json()[0]["pages"][0]
+    page = pages_in(section)[0]
     assert (page["title"], page["kind"]) == ("Sketch", "drawing")
 
 
@@ -66,15 +66,13 @@ def test_delete_removes_the_file(client, section, notebook):
     assert not (notebook / "Other" / "Untitled Page.md").exists()
 
 
-def test_new_pages_land_at_the_bottom_of_the_section(client, section):
+def test_new_pages_land_at_the_bottom_of_the_section(client, section, pages_in):
     for t in ("Zeta", "Alpha"):
         client.post("/api/notes/pages", json={"section_id": section, "title": t})
-    assert [p["title"] for p in client.get("/api/notes/tree").json()[0]["pages"]] == [
-        "Zeta", "Alpha",
-    ]
+    assert [p["title"] for p in pages_in(section)] == ["Zeta", "Alpha"]
 
 
-def test_page_order_can_be_rewritten(client, section):
+def test_page_order_can_be_rewritten(client, section, pages_in):
     ids = [
         client.post(
             "/api/notes/pages", json={"section_id": section, "title": t}
@@ -84,22 +82,20 @@ def test_page_order_can_be_rewritten(client, section):
     client.put(
         f"/api/notes/sections/{section}/pages/order", json={"ids": ids[::-1]}
     )
-    assert [p["title"] for p in client.get("/api/notes/tree").json()[0]["pages"]] == [
-        "Three", "Two", "One",
-    ]
+    assert [p["title"] for p in pages_in(section)] == ["Three", "Two", "One"]
 
 
-def test_md_file_dropped_in_by_hand_is_a_page(client, section, notebook):
+def test_md_file_dropped_in_by_hand_is_a_page(client, section, notebook, pages_in):
     (notebook / "Other" / "Dropped.md").write_text("written elsewhere")
-    pages = client.get("/api/notes/tree").json()[0]["pages"]
+    pages = pages_in(section)
     assert [p["title"] for p in pages] == ["Dropped"]
     assert pages[0]["snippet"] == "written elsewhere"
 
 
-def test_unrelated_files_are_not_pages(client, section, notebook):
+def test_unrelated_files_are_not_pages(client, section, notebook, pages_in):
     (notebook / "Other" / "photo.png").write_bytes(b"\x89PNG")
     (notebook / "Other" / ".hidden.md").write_text("x")
-    assert client.get("/api/notes/tree").json()[0]["pages"] == []
+    assert pages_in(section) == []
 
 
 def test_oversize_page_is_rejected(client, section):

@@ -771,3 +771,255 @@ body {
   border-color: rgba(0,0,0,0.5);
 }
 .day-list-item.first-today .drag-handle span { background: rgba(0,0,0,0.45); }
+
+/* ---------- sticky notes ---------------------------------------------
+   A floating pad in the shape of the pre-iOS 7 Notes app. The notes live in
+   Streak Notes' "Sticky Notes" section; this is only the surface.
+
+   Noteworthy and Marker Felt ship with iOS and macOS, which is where this is
+   actually used, so the handwriting is authentic there with no webfont to
+   fetch — and it degrades to whatever casual face a desktop has. */
+:root {
+  --sticky-hand: 'Noteworthy', 'Marker Felt', 'Bradley Hand', 'Chalkboard SE',
+                 'Segoe Print', 'Comic Sans MS', cursive;
+  --sticky-line: 28px;
+  --sticky-paper: #faf5be;
+  --sticky-rule: rgba(150, 138, 92, 0.5);
+  --sticky-ink: #2e2b22;
+  --sticky-brown: #8a6a41;
+}
+
+.sticky-fab {
+  position: fixed;
+  z-index: 92;
+  padding: 4px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  cursor: grab;
+  /* The icon is dragged with pointer events, so the browser must not claim
+     the gesture for scrolling first. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+  transition: transform 0.12s ease;
+}
+.sticky-fab img { width: 100%; height: 100%; display: block; pointer-events: none; }
+.sticky-fab:hover { transform: scale(1.06); }
+.sticky-fab:active { cursor: grabbing; transform: scale(0.96); }
+.sticky-fab.on { transform: scale(1.04); }
+
+.sticky-pad {
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--sticky-paper);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+/* The leather bar. */
+.sticky-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(#6d5842, #48382a);
+  border-bottom: 2px solid #2b2019;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.sticky-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sticky-btn {
+  flex: none;
+  min-width: 42px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #241b13;
+  border-radius: 6px;
+  background: linear-gradient(#6a5540, #433426);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.sticky-btn:hover { background: linear-gradient(#7a6250, #4f3e2e); }
+.sticky-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sticky-btn.plus { font-size: 19px; font-weight: 400; line-height: 1; }
+.sticky-btn.back::before { content: '‹ '; font-size: 15px; }
+/* Balances the + so the title stays optically centred when there is no back
+   button, rather than sliding left on the list view. */
+.sticky-btn-space { flex: none; width: 42px; }
+
+.sticky-error {
+  flex: none;
+  padding: 5px 12px;
+  background: #7a2c2c;
+  color: #ffdada;
+  font-size: 12px;
+}
+
+/* Ruled paper. The rules and the editor share --sticky-line, which is the
+   whole reason the handwriting sits on the lines instead of drifting off
+   them as a note gets longer. */
+.sticky-paper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px 40px 38px;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--sticky-line) - 1px),
+      var(--sticky-rule) calc(var(--sticky-line) - 1px),
+      var(--sticky-rule) var(--sticky-line)
+    ),
+    /* the margin rule */
+    linear-gradient(to right, transparent 30px, rgba(176, 106, 74, 0.45) 30px,
+                    rgba(176, 106, 74, 0.45) 31px, transparent 31px);
+  background-attachment: local, local;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sticky-stamp {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  height: calc(var(--sticky-line) * 2);
+  line-height: calc(var(--sticky-line) * 2);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sticky-brown);
+}
+.sticky-day { color: #7d5a2f; }
+.sticky-when { font-weight: 600; opacity: 0.85; }
+
+/* The shared task-notes editor, sat on the ruled paper. Only the surface
+   changes here; Enter, Backspace and the checkbox behave exactly as they do
+   in a task's notes. */
+/* The shared editor arrives dressed for the task modal — dark panel, border,
+   its own scroll box. On paper it is just the lines. */
+.sticky-editor {
+  gap: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+}
+.sticky-editor .notes-line { align-items: flex-start; gap: 6px; }
+.sticky-editor .notes-line textarea {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--sticky-ink);
+  font-family: var(--sticky-hand);
+  font-size: 19px;
+  line-height: var(--sticky-line);
+  caret-color: #3b2f1d;
+}
+.sticky-editor .notes-line textarea::placeholder { color: rgba(60, 50, 30, 0.35); }
+.sticky-editor .notes-line.check .check-circle {
+  margin-top: 5px;
+  border-color: var(--sticky-brown);
+  background: transparent;
+}
+.sticky-editor .notes-line.check .check-circle.checked {
+  background: var(--sticky-brown);
+  border-color: var(--sticky-brown);
+}
+.sticky-editor .notes-line.check.done textarea {
+  color: rgba(60, 50, 30, 0.5);
+  text-decoration: line-through;
+}
+
+/* The bottom toolbar, on the paper as it was — minus the two buttons that
+   have nothing to do here (mail, and arrows the Notes list replaces). */
+.sticky-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 46px;
+  border-top: 1px solid rgba(150, 138, 92, 0.55);
+  background: var(--sticky-paper);
+}
+.sticky-tools button {
+  width: 54px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.sticky-tools button:hover { background: rgba(138, 106, 65, 0.14); }
+.sticky-tools svg {
+  fill: none;
+  stroke: var(--sticky-brown);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sticky-tools .danger:hover { background: rgba(178, 60, 45, 0.16); }
+.sticky-tools .danger svg { stroke: #a4452f; }
+
+/* The Notes list. */
+.sticky-paper.list { padding: 0; }
+.sticky-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: calc(var(--sticky-line) * 2);
+  padding: 0 14px 0 38px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.sticky-row:hover { background: rgba(138, 106, 65, 0.12); }
+.sticky-row-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sticky-hand);
+  font-size: 18px;
+  color: var(--sticky-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sticky-row-when { flex: none; font-size: 12px; font-weight: 600; color: var(--sticky-brown); }
+.sticky-empty {
+  padding: 22px 20px;
+  font-family: var(--sticky-hand);
+  font-size: 16px;
+  color: rgba(60, 50, 30, 0.55);
+}

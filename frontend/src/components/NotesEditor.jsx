@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { parseNotes, serializeNotes } from '../notes.js'
 
 function autoGrow(el) {
@@ -14,8 +14,15 @@ function autoGrow(el) {
 //
 // onChange fires for plain typing (saved on blur, like the old textarea);
 // onCommit fires for structural/check changes that should persist right away.
+//
+// The sticky-note widget reuses this editor so a checklist behaves identically
+// wherever it is written. It needs the ✓ in its own bottom toolbar rather than
+// this one, so `toolbar={false}` drops the built-in row and `toggleRef` hands
+// the caller the same toggle to wire up. `className` lets a host restyle the
+// lines — the sticky note sits them on ruled paper.
 export default function NotesEditor({
   value, containerRef, onChange, onCommit, onFocusChange, onBlur,
+  className = '', toolbar = true, toggleRef,
 }) {
   const lines = parseNotes(value)
   const [focused, setFocused] = useState(0)
@@ -47,6 +54,7 @@ export default function NotesEditor({
 
   const toggleType = () => {
     const i = Math.min(focused, lines.length - 1)
+    if (i < 0) return
     const next = lines.map((l, j) =>
       j === i
         ? { type: l.type === 'check' ? 'text' : 'check', done: false, text: l.text }
@@ -58,6 +66,12 @@ export default function NotesEditor({
 
   const toggleDone = (i) =>
     update(lines.map((l, j) => (j === i ? { ...l, done: !l.done } : l)), true)
+
+  // No dependency list: the closure has to stay current, since which line the
+  // caller's ✓ button acts on changes with every focus move.
+  useEffect(() => {
+    if (toggleRef) toggleRef.current = toggleType
+  })
 
   const onKeyDown = (e, i) => {
     const el = e.target
@@ -101,29 +115,31 @@ export default function NotesEditor({
     // containment check every hop between two lines would count as leaving
     // the notes and fire a redundant save.
     <div
-      className="notes-editor"
+      className={`notes-editor ${className}`}
       ref={containerRef}
       onFocus={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) onFocusChange(true)
+        if (!e.currentTarget.contains(e.relatedTarget)) onFocusChange?.(true)
       }}
       onBlur={(e) => {
         if (e.currentTarget.contains(e.relatedTarget)) return
-        onFocusChange(false)
-        onBlur()
+        onFocusChange?.(false)
+        onBlur?.()
       }}
     >
-      <div className="notes-toolbar">
-        <span className="notes-label">Notes</span>
-        <button
-          type="button"
-          className="notes-check-btn"
-          title="Make the current line a checkbox"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={toggleType}
-        >
-          ✓
-        </button>
-      </div>
+      {toolbar && (
+        <div className="notes-toolbar">
+          <span className="notes-label">Notes</span>
+          <button
+            type="button"
+            className="notes-check-btn"
+            title="Make the current line a checkbox"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleType}
+          >
+            ✓
+          </button>
+        </div>
+      )}
       {lines.map((l, i) => (
         <div key={i} className={`notes-line ${l.type} ${l.done ? 'done' : ''}`}>
           {l.type === 'check' && (

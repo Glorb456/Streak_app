@@ -21,6 +21,8 @@ notebook/
     Maxwell.md            a markdown page
   Other/
     Skulk idea.draw.json  a hand-drawn page (packed vector strokes + images)
+  Sticky Notes/
+    Call the plumber.md   a sticky note from the Streak task app
   .assets/
     3f2a….png             images placed on drawings, addressed by content hash
   .streaknotes.json       section order, page order, section colours
@@ -56,6 +58,34 @@ navigation with no second login:
 `/api/notes/` sits under `/api` on purpose: oauth2-proxy's `--api-route=^/api`
 then covers it too, so an expired session answers with a 401 the client can act
 on rather than a Google login page it would try to parse as JSON.
+
+## The Sticky Notes section
+
+One section is the app's rather than the user's. The Streak task app has a
+floating sticky-note pad that writes here, so this section behaves like
+infrastructure:
+
+- **It materialises on any read of the tree**, so it is always there and there
+  is no "create it first" path for either frontend to get wrong. Delete the
+  directory by hand and it comes back on the next load.
+- **It cannot be deleted or renamed** (403). Renaming is refused for the same
+  reason as deleting: the app would auto-create a fresh one and every existing
+  sticky note would be stranded in the orphan. Its colour is still editable.
+- **Only sticky notes go in it** — a drawing is refused (400), because the pad
+  can only open markdown. `+ Page` here skips the kind chooser and just makes a
+  note.
+- **The notes inside it are ordinary pages** and can be deleted, edited and
+  read here like any other markdown.
+
+Sections carry a `sticky` flag in the tree, so both frontends key their
+affordances off the server's answer rather than matching on the name.
+
+A sticky note is plain markdown using the same `- [ ]` / `- [x]` checklist
+encoding as Streak's task notes, so one note reads the same in the pad, in this
+app, and in any other editor. Its filename is its first line, the way the old
+Notes app titled things — the pad renames the file as that line changes, and
+falls back to keeping the old name if another note already owns it (two notes
+may start with the same line; two files may not share a name).
 
 ## Markdown pages
 

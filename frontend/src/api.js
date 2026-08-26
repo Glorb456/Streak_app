@@ -10,7 +10,14 @@ async function req(path, opts = {}) {
     window.location.reload()
     throw new Error(`${opts.method || 'GET'} ${path} -> 401 (session expired)`)
   }
-  if (!res.ok) throw new Error(`${opts.method || 'GET'} ${path} -> ${res.status}`)
+  if (!res.ok) {
+    // The status rides on the error: callers that can recover from a specific
+    // one (the sticky pad retries a 409 rename without the rename) need to
+    // tell it apart from a genuine failure.
+    const err = new Error(`${opts.method || 'GET'} ${path} -> ${res.status}`)
+    err.status = res.status
+    throw err
+  }
   // Every handler returns a body today, but a 204 would make res.json() throw
   // "Unexpected end of JSON input" on all three delete calls. No caller of
   // those reads the result, so null is safe.
@@ -45,4 +52,25 @@ export const api = {
 
   settings: () => req('/settings'),
   setSetting: (key, value) => req('/settings', { method: 'PUT', body: JSON.stringify({ key, value }) }),
+}
+
+// Streak Notes' API, reached through the same nginx and the same oauth2-proxy
+// session as everything above — which is the whole reason the sticky-note
+// widget can live in this app and store its notes in the other one without a
+// second login or a second copy of the data.
+//
+// Sticky notes are ordinary markdown pages in the app-owned "Sticky Notes"
+// section, using the same '- [ ]' checklist encoding as task notes, so the
+// same note opens in the widget and in Streak Notes.
+export const notesApi = {
+  tree: () => req('/notes/tree'),
+  page: (id) => req(`/notes/pages/${id}`),
+  createNote: (section_id, title) =>
+    req('/notes/pages', {
+      method: 'POST',
+      body: JSON.stringify({ section_id, title, kind: 'markdown' }),
+    }),
+  updateNote: (id, body) =>
+    req(`/notes/pages/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteNote: (id) => req(`/notes/pages/${id}`, { method: 'DELETE' }),
 }

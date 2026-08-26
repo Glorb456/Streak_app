@@ -14,6 +14,10 @@ class Section(BaseModel):
     id: str
     name: str
     color: str
+    # The app-owned sticky-notes section: undeletable, unrenameable, and
+    # markdown-only. Both frontends key their affordances off this rather than
+    # matching on the name.
+    sticky: bool = False
     pages: list[PageSummary]
 
 

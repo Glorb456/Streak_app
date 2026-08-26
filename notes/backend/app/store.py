@@ -29,6 +29,15 @@ META_NAME = ".streaknotes.json"
 MD_EXT = ".md"
 DRAW_EXT = ".draw.json"
 ASSETS_NAME = ".assets"
+
+# The one section the app owns rather than the user. It is created on demand,
+# cannot be deleted or renamed, and holds only sticky notes — the Streak task
+# app writes here from its floating sticky-note widget, and it would have
+# nowhere to put them if this section could disappear out from under it.
+# Sticky notes are ordinary markdown, so they open and edit normally in Streak
+# Notes too; what is fixed is the section, not the format.
+STICKY_SECTION = "Sticky Notes"
+STICKY_COLOR = "#f5c518"
 # Longest suffix first: "x.draw.json" also ends with ".json", and matching the
 # short one first would file every drawing under the wrong kind.
 KINDS = ((DRAW_EXT, "drawing"), (MD_EXT, "markdown"))
@@ -266,9 +275,31 @@ def _page_entry(section_rel: str, filename: str, path: Path) -> dict:
     }
 
 
+def ensure_sticky_section() -> Path:
+    """Create the sticky-notes section if it is missing, and return it.
+
+    Called from tree(), which is the one read path both apps go through, so the
+    section reappears the moment anything looks at the notebook — including
+    after someone deletes the directory by hand.
+    """
+    path = ROOT / STICKY_SECTION
+    if not path.is_dir():
+        path.mkdir(parents=True, exist_ok=True)
+        meta = _read_meta()
+        if STICKY_SECTION not in meta["order"]:
+            # First, not last: it is the section the widget writes to, so it
+            # belongs at the top of the sidebar rather than after whatever the
+            # user has been working on.
+            meta["order"] = [STICKY_SECTION] + [n for n in meta["order"] if n != STICKY_SECTION]
+        _section_meta(meta, STICKY_SECTION).setdefault("color", STICKY_COLOR)
+        _write_meta(meta)
+    return path
+
+
 def tree() -> list[dict]:
     """Every section and page in the notebook, in display order."""
     ROOT.mkdir(parents=True, exist_ok=True)
+    ensure_sticky_section()
     meta = _read_meta()
     # Dot-directories are skipped, which is also what keeps .assets/ — the
     # image store — from showing up in the sidebar as a section.
@@ -286,6 +317,10 @@ def tree() -> list[dict]:
             "id": encode_id(name),
             "name": name,
             "color": smeta.get("color") or PALETTE[i % len(PALETTE)],
+            # Flagged rather than left for each client to match on the name:
+            # two frontends read this tree, and both need the same answer about
+            # what they may offer to do to it.
+            "sticky": name == STICKY_SECTION,
             "pages": [_page_entry(name, f, path / f) for f in files],
         })
     return sections
@@ -344,6 +379,11 @@ def update_section(ident: str, name: str | None, color: str | None) -> dict:
     meta = _read_meta()
     old = path.name
     if name is not None and safe_name(name) != old:
+        # Renaming it away would leave the app to auto-create a second one and
+        # strand every sticky note in the orphan, which is the same loss as a
+        # delete. The colour stays editable.
+        if old == STICKY_SECTION:
+            raise StoreError(403, f"“{STICKY_SECTION}” cannot be renamed")
         target = ROOT / safe_name(name)
         if target.exists():
             raise StoreError(409, "a section with that name already exists")
@@ -363,6 +403,9 @@ def delete_section(ident: str) -> None:
     path = decode_id(ident)
     if not path.is_dir():
         raise StoreError(404, "section not found")
+    # The notes inside it are deletable; the section itself is not.
+    if path.name == STICKY_SECTION:
+        raise StoreError(403, f"“{STICKY_SECTION}” cannot be deleted")
     for child in sorted(path.rglob("*"), reverse=True):
         child.rmdir() if child.is_dir() else child.unlink()
     path.rmdir()
@@ -382,6 +425,12 @@ def create_page(section_id: str, title: str, kind: str) -> dict:
     section = decode_id(section_id)
     if not section.is_dir():
         raise StoreError(404, "section not found")
+    # A sticky note is markdown — the same '- [ ]' checklist encoding the task
+    # app already uses — so a drawing here would be a page the sticky widget
+    # could not open. Enforced on the API rather than in the two frontends,
+    # which is also what keeps a hand-rolled request from getting round it.
+    if section.name == STICKY_SECTION and kind != "markdown":
+        raise StoreError(400, f"only sticky notes belong in “{STICKY_SECTION}”")
     ext = ext_for(kind)
     path = _unique(section, safe_name(title), ext)
     # A markdown page starts as a blank document; a drawing starts as a valid,

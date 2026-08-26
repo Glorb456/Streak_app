@@ -79,6 +79,6 @@ def test_asset_ids_are_matched_not_resolved(client, notebook, tmp_path):
     assert secret.read_text() == "password"
 
 
-def test_the_asset_store_is_not_a_section(client, notebook):
+def test_the_asset_store_is_not_a_section(client, notebook, user_tree):
     upload(client, PNG)
-    assert client.get("/api/notes/tree").json() == []
+    assert user_tree() == []

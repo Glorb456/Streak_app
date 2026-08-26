@@ -56,6 +56,21 @@ notes/      Streak Notes — a second, independent app (see notes/README.md)
   off parks a daily task without deleting it. **Launch Streak notes** at the
   bottom of that menu switches apps.
 
+## Sticky notes
+
+A draggable sticky-note icon floats over the task app — bottom right by
+default, and it remembers where you drag it (per device). Tapping it opens a pad
+in the shape of the pre-iOS 7 Notes app: leather bar, ruled yellow paper,
+handwriting, a Notes list behind the back button and `+` for a new note. The
+bottom toolbar keeps two of the original four buttons — make the current line a
+checkbox (the same checklist as a task's notes) and delete — since the list
+replaces the arrows and there is nothing to mail.
+
+The notes are stored in **Streak Notes**, in its app-owned `Sticky Notes`
+section, as ordinary markdown; a note's title is its first line. That section
+cannot be deleted or renamed and holds nothing but sticky notes. The icon is
+deliberately not shown inside Streak Notes, which is already a notes app.
+
 ## Streak Notes
 
 A separate OneNote-style notebook app at `/notes/`, with its own API and no
