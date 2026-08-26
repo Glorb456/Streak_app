@@ -1,4 +1,5 @@
 # Streak
+NOTE THIS IS NOT A CODING PROJECT. THE MAJORITY OF THE CODE IS AI GENERATED.
 
 Self-hosted productivity app: a Notion-style task calendar with daily-task
 streak tracking. Runs entirely in the browser against a local FastAPI +
