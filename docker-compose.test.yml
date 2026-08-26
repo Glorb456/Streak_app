@@ -1,0 +1,36 @@
+# Runs the backend pytest suite against a throwaway Postgres, in containers,
+# so no local Python/pip is needed:
+#
+#   docker compose -f docker-compose.test.yml up --build \
+#       --abort-on-container-exit --exit-code-from backend-tests
+#
+# The backend image already carries the app + its runtime deps; pytest/httpx
+# are installed at run time and the tests/ dir is mounted in.
+services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: streak_test
+      POSTGRES_USER: streak
+      POSTGRES_PASSWORD: streak_local_pw
+    tmpfs:
+      - /var/lib/postgresql/data  # ephemeral: fresh DB every run
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streak -d streak_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend-tests:
+    build: ./backend
+    command: >
+      sh -c "pip install --no-cache-dir pytest httpx && pytest"
+    working_dir: /app
+    environment:
+      DATABASE_URL: postgresql://streak:streak_local_pw@test-db:5432/streak_test
+    volumes:
+      - ./backend/tests:/app/tests
+      - ./backend/pytest.ini:/app/pytest.ini
+    depends_on:
+      test-db:
+        condition: service_healthy

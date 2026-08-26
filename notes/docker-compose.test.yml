@@ -1,0 +1,16 @@
+# Runs the Streak Notes backend tests in a container, so no local Python is
+# needed. The store writes to a pytest tmp_path, so nothing here touches the
+# real notebook:
+#
+#   cd streak/notes
+#   docker compose -f docker-compose.test.yml up --build \
+#       --abort-on-container-exit --exit-code-from backend-tests
+services:
+  backend-tests:
+    build: ./backend
+    command: >
+      sh -c "pip install --no-cache-dir pytest httpx && pytest"
+    working_dir: /app
+    volumes:
+      - ./backend/tests:/app/tests
+      - ./backend/pytest.ini:/app/pytest.ini

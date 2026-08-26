@@ -1,0 +1,682 @@
+/* Streak Notes — a OneNote-shaped notebook over a directory of .md files.
+   Deliberately close to the task app's palette (#1c1c1c ground, #2f6fed for
+   action) so moving between the two reads as one product, with a violet accent
+   standing in for OneNote's purple. */
+
+:root {
+  --bg: #1c1c1c;
+  --panel: #242424;
+  --panel-2: #202020;
+  --line: #343434;
+  --text: #e8e8e8;
+  --muted: #8b8b8b;
+  --accent: #b39bff;
+  --row-h: 46px;
+  --sections-w: 210px;
+  --pages-w: 268px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { background: var(--bg); height: 100%; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  overscroll-behavior: none;
+}
+
+button { font: inherit; color: inherit; }
+
+.notes-app {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* env() is 0px off iOS, so this stays desktop-neutral. */
+  padding-top: env(safe-area-inset-top);
+  background: var(--bg);
+}
+
+/* ---------------------------------------------------------- top bar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  flex: none;
+}
+
+.topbar-left, .topbar-right { display: flex; align-items: center; gap: 6px; }
+.topbar-left { min-width: 160px; }
+.topbar-right { min-width: 160px; justify-content: flex-end; }
+
+.app-name { font-size: 14px; font-weight: 600; letter-spacing: 0.01em; }
+.saving { font-size: 11px; color: var(--muted); }
+
+.topbar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--line); }
+
+.notes-settings { position: relative; }
+
+.dropdown {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #232323;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dropdown button {
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+}
+.dropdown button:hover { background: rgba(255, 255, 255, 0.08); }
+
+.banner {
+  padding: 8px 14px;
+  background: #4a2323;
+  color: #ffb4b4;
+  font-size: 13px;
+  border-bottom: 1px solid #6b3030;
+}
+
+/* -------------------------------------------------------- workspace */
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+.sidebar {
+  display: flex;
+  flex: none;
+  width: calc(var(--sections-w) + var(--pages-w));
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  /* Margin rather than transform, so the editor reclaims the space as the
+     sidebar leaves instead of the page sitting under it. */
+  margin-left: 0;
+  transition: margin-left 0.24s ease;
+}
+.notes-app.collapsed .sidebar { margin-left: calc(-1 * (var(--sections-w) + var(--pages-w))); }
+
+.col { display: flex; flex-direction: column; min-height: 0; }
+.sections-col { width: var(--sections-w); border-right: 1px solid var(--line); }
+.pages-col { width: var(--pages-w); background: var(--panel-2); }
+
+.notebook-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 52px;
+  padding: 0 14px;
+  flex: none;
+}
+.notebook-name { font-size: 15px; font-weight: 600; }
+.notebook-dots { color: var(--muted); letter-spacing: 1px; font-size: 12px; }
+
+.rail-and-list { display: flex; flex: 1; min-height: 0; overflow-y: auto; }
+
+/* The accent rail and the section list are two columns rendering the same
+   list at the same row height; that shared --row-h is the whole alignment
+   mechanism, so nothing here may set a row height of its own. */
+.rail { flex: none; width: 10px; padding-left: 2px; }
+
+/* Shared colour control (ColorSwatch): a painted box with the native colour
+   input stretched invisibly over it, so the tap opens the system picker. */
+.swatch { position: relative; display: block; cursor: pointer; }
+.swatch input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.chip {
+  height: var(--row-h);
+  border-radius: 3px;
+  /* Shrinking the painted area inside the full row height is what keeps the
+     swatch aligned with its section row. */
+  background-clip: content-box;
+  padding: 8px 0;
+}
+
+.section-list { flex: 1; min-width: 0; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--row-h);
+  padding: 0 8px 0 12px;
+  cursor: pointer;
+}
+.section-row:hover { background: rgba(255, 255, 255, 0.05); }
+.section-row.active { background: #333333; }
+.section-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-x {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+}
+.section-row:hover .row-x, .page-row:hover .row-x { opacity: 1; }
+.row-x:hover { background: rgba(229, 115, 115, 0.16); color: #e57373; }
+
+.renaming {
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: #1a1a1a;
+  color: var(--text);
+  padding: 3px 6px;
+  font: inherit;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------ pages */
+
+.page-list { flex: 1; min-height: 0; overflow-y: auto; padding-top: 6px; }
+
+.page-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 8px 12px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.page-row:hover { background: rgba(255, 255, 255, 0.04); }
+.page-row.active { background: #303030; border-left-color: var(--accent); }
+
+.page-text { flex: 1; min-width: 0; }
+.page-title {
+  display: block;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-snippet {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #9a9a9a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-snippet.muted { color: #6d6d6d; }
+
+.thumb {
+  flex: none;
+  width: 56px;
+  height: 52px;
+  border: 1px solid #4a4a4a;
+  border-radius: 3px;
+  background: #1b1b1b;
+  overflow: hidden;
+  padding: 3px;
+}
+/* A hand-drawn page has no strokes to preview yet, so its thumbnail is the
+   blank sheet it actually is rather than a placeholder graphic. */
+.thumb.blank { background: #1b1b1b; }
+.thumb-text {
+  font-size: 5px;
+  line-height: 1.5;
+  color: #b9b9b9;
+  word-break: break-word;
+  overflow: hidden;
+  height: 100%;
+}
+
+.add-wrap { position: relative; flex: none; }
+.add-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+}
+.add-btn:hover:not(:disabled) { background: rgba(179, 155, 255, 0.1); }
+.add-btn:disabled { color: #5c5c5c; cursor: not-allowed; }
+.plus { font-size: 19px; line-height: 1; }
+
+.empty-hint { padding: 14px 16px; font-size: 13px; color: #6d6d6d; }
+
+/* The page-kind chooser, opened by '+ Page'. */
+.kind-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 56px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #262626;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kind-title { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+.kind-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.kind-menu button:hover { background: rgba(255, 255, 255, 0.08); }
+.kind-glyph {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 15px;
+  color: var(--accent);
+}
+.kind-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kind-text strong { font-size: 14px; font-weight: 600; }
+.kind-text small { font-size: 11px; color: var(--muted); }
+
+/* ----------------------------------------------------------- editor */
+
+.editor { flex: 1; min-width: 0; overflow-y: auto; }
+
+.editor-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #6d6d6d;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.md-page, .draw-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 34px 28px calc(60px + env(safe-area-inset-bottom));
+  transition: max-width 0.24s ease;
+}
+/* With the sidebar away the page has the window to itself, so it widens
+   rather than leaving the reclaimed space empty on either side. */
+.md-page.wide, .draw-page.wide { max-width: 900px; }
+
+.md-title {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: 700 32px/1.25 inherit;
+  padding: 0 0 6px;
+  margin-bottom: 10px;
+}
+.md-title:focus { outline: none; border-bottom: 1px solid var(--line); }
+.md-title::placeholder { color: #5a5a5a; }
+
+.md-error {
+  margin-bottom: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: #4a2323;
+  color: #ffb4b4;
+  font-size: 13px;
+}
+
+.md-body { font-size: 16px; line-height: 1.65; }
+
+/* Every line, rendered or being edited, occupies the same box — that is what
+   keeps the text from shifting as the caret moves between lines. */
+.md-body > * {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: none;
+  font-size: 16px;
+  line-height: 1.65;
+  cursor: text;
+}
+
+.md-input {
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+}
+.md-input.k-code, .md-input.k-fence {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+}
+
+.md-h { font-weight: 700; }
+h1.md-h, .md-input.k-heading.lvl1 { font-size: 28px; line-height: 1.3; font-weight: 700; padding-top: 14px; }
+h2.md-h, .md-input.k-heading.lvl2 { font-size: 23px; line-height: 1.35; font-weight: 700; padding-top: 12px; }
+h3.md-h, .md-input.k-heading.lvl3 { font-size: 19px; line-height: 1.4; font-weight: 700; padding-top: 10px; }
+h4.md-h, .md-input.k-heading.lvl4,
+h5.md-h, .md-input.k-heading.lvl5,
+h6.md-h, .md-input.k-heading.lvl6 { font-size: 17px; font-weight: 600; padding-top: 8px; }
+
+.md-p { min-height: 1.65em; }
+.md-blank { color: transparent; }
+
+.md-item { display: flex; gap: 8px; }
+.md-marker { flex: none; color: var(--muted); min-width: 16px; }
+.md-item .line-body { flex: 1; min-width: 0; }
+
+.md-todo { display: flex; align-items: flex-start; gap: 9px; }
+.md-todo-text { flex: 1; min-width: 0; }
+.md-todo.done .md-todo-text { color: #8b8b8b; text-decoration: line-through; }
+
+.check-circle {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 6px;
+  border: 2px solid #777;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.check-circle.checked { background: #4caf50; border-color: #4caf50; }
+
+.md-quote {
+  border-left: 3px solid var(--line);
+  padding-left: 12px !important;
+  color: #b8b8b8;
+}
+
+.md-code, .md-fence {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  background: #161616;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 10px !important;
+}
+.md-fence { color: #6d6d6d; }
+.md-divider { border-top: 1px solid var(--line); margin: 10px 0 !important; padding: 0 !important; }
+
+.md-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: #2c2c2c;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.md-body a { color: #8ab4f8; }
+.md-body strong { font-weight: 700; }
+
+/* Clicking below the last line continues the note. */
+.md-tail { min-height: 220px; cursor: text; }
+
+/* --------------------------------------------------- hand-drawn page */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* A drawing owns the whole pane and scrolls itself, so the editor must not
+   also scroll — two scrollers over one canvas fight for every gesture. */
+.editor.canvas { overflow: hidden; display: flex; }
+.editor.canvas .draw-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-width: none;
+  padding: 20px 20px calc(16px + env(safe-area-inset-bottom));
+}
+.editor.canvas .draw-page .md-title { margin-bottom: 8px; }
+
+.draw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
+  position: relative;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.tool-group { display: flex; align-items: center; gap: 4px; }
+.tool-group.pencils { gap: 2px; }
+.selection-group { gap: 8px; }
+
+.tool {
+  width: 40px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tool:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+.tool.on { background: #333; border-color: #4a4a4a; }
+.tool:disabled { opacity: 0.32; cursor: not-allowed; }
+.tool.danger { color: #e57373; }
+
+/* The nib sits low and rises when its pencil is picked — the same physical
+   cue a pen tray gives, and it means the bar needs no labels. */
+.nib { display: block; height: 26px; width: 22px; position: relative; }
+.nib-dot {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  transition: bottom 0.15s ease;
+}
+.tool.pencil.on .nib-dot { bottom: 9px; }
+
+.tool-note { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.draw-status { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.draw-status.error { color: #ff9b9b; }
+
+.tool-popover {
+  position: absolute;
+  top: 56px;
+  left: 10px;
+  z-index: 40;
+  min-width: 240px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #262626;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.eraser-popover { left: auto; right: 10px; }
+.tool-popover-title { font-size: 12px; color: var(--muted); }
+.tool-row { display: flex; align-items: center; gap: 12px; }
+
+.pencil-swatch {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #4a4a4a;
+}
+
+.tool-slider { display: flex; align-items: center; gap: 9px; flex: 1; font-size: 12px; color: var(--muted); }
+.tool-slider input { flex: 1; min-width: 90px; accent-color: var(--accent); }
+.tool-slider b { min-width: 22px; text-align: right; color: var(--text); font-weight: 600; }
+
+.tool-modes { display: flex; gap: 6px; }
+.tool-modes button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tool-modes button small { font-size: 10px; color: var(--muted); line-height: 1.3; }
+.tool-modes button.on { background: #333; border-color: var(--accent); }
+
+/* touch-action:none is load-bearing: without it the pencil scrolls the page
+   instead of drawing on it. Scrolling is handled from touch pointers and the
+   wheel, which is also what makes a resting palm harmless. */
+.draw-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #161616;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Stops iOS offering the callout/selection UI on a long pencil press. */
+  -webkit-touch-callout: none;
+}
+.draw-stage.tool-pen { cursor: crosshair; }
+.draw-stage.tool-eraser { cursor: cell; }
+.draw-stage.tool-lasso { cursor: copy; }
+
+.draw-layer { position: absolute; inset: 0; display: block; }
+
+.draw-scrollbar {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: 4px;
+  border-radius: 2px;
+}
+.draw-thumb {
+  position: absolute;
+  right: 0;
+  width: 100%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ----------------------------------------------------------- mobile */
+
+@media (max-width: 820px) {
+  :root { --sections-w: 44%; --pages-w: 56%; }
+
+  /* The sidebar overlays the page instead of splitting a narrow screen, so
+     maximizing genuinely gives the whole window to the note. */
+  .sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    z-index: 30;
+    margin-left: 0;
+    transform: translateX(0);
+    transition: transform 0.24s ease;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+  }
+  .notes-app.collapsed .sidebar { margin-left: 0; transform: translateX(-100%); }
+
+  .md-page, .draw-page { padding: 22px 18px calc(60px + env(safe-area-inset-bottom)); }
+  .editor.canvas .draw-page { padding: 14px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .md-title { font-size: 22px; }
+  .draw-toolbar { gap: 8px; padding: 6px; }
+  .tool { width: 36px; height: 34px; }
+  .draw-status { display: none; }
+  .topbar-left, .topbar-right { min-width: 0; }
+  .app-name { display: none; }
+}
+
+/* Touch devices have no hover to reveal a row's delete button. */
+@media (pointer: coarse), (hover: none) {
+  .row-x { opacity: 0.55; }
+}

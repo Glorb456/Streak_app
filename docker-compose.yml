@@ -1,0 +1,105 @@
+# Pinned so the project name survives this directory being renamed/moved.
+# Compose otherwise derives it from the folder name, which would orphan the
+# existing streak_app_streak_pgdata volume and come up with an empty database.
+name: streak_app
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: streak
+      POSTGRES_USER: streak
+      POSTGRES_PASSWORD: streak_local_pw
+    volumes:
+      - streak_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streak -d streak"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://streak:streak_local_pw@db:5432/streak
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+      - notes-backend
+      - notes-frontend
+
+  # Streak Notes: a second, independent app reached through the same nginx (and
+  # therefore the same oauth2-proxy session) at /notes/. It shares nothing with
+  # the task app but the origin — its own API, its own storage, no database.
+  notes-backend:
+    build: ./notes/backend
+    restart: unless-stopped
+    environment:
+      NOTEBOOK_DIR: /notebook
+    # As the host user, not root. The notebook is a bind mount whose whole
+    # point is that the owner can open and edit the .md files directly, and a
+    # root-owned tree would make that need sudo. Override in .env if the
+    # account running compose is not 1000:1000.
+    user: "${NOTES_UID:-1000}:${NOTES_GID:-1000}"
+    volumes:
+      # A bind mount, not a named volume: the whole point of the notes store is
+      # that every page is a real .md file the owner can open, grep and back up
+      # from the host.
+      - ./notes/notebook:/notebook
+
+  notes-frontend:
+    build: ./notes/frontend
+    restart: unless-stopped
+    depends_on:
+      - notes-backend
+
+  # Public path only: Tailscale Funnel -> here -> frontend. Funnel is anonymous,
+  # so this is what restricts access to a single Google account. The LAN path
+  # (frontend :3000 above) bypasses it and stays unauthenticated on purpose.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+    restart: unless-stopped
+    env_file: .env.oauth
+    command:
+      - --provider=google
+      - --http-address=0.0.0.0:4180
+      - --redirect-url=https://siddhant-xps-8940.tail824e0c.ts.net/oauth2/callback
+      - --upstream=http://frontend:80
+      - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
+      - --email-domain=*
+      - --cookie-secure=true
+      # 30-day sessions. Google expires refresh tokens after 7 days while the
+      # OAuth app is in "Testing" status, so refresh is off deliberately.
+      - --cookie-expire=720h
+      - --cookie-refresh=0
+      - --reverse-proxy=true
+      - --skip-provider-button=true
+      # 401 instead of a redirect to Google, so the 5s poll in App.jsx doesn't
+      # try to JSON.parse a Google login page when the session expires.
+      - --api-route=^/api
+      # Icons and the manifest are served unauthenticated: iOS fetches the
+      # home-screen icon from contexts (share sheet, springboard) that don't
+      # carry the session cookie, and these files leak nothing but the name.
+      - --skip-auth-route=^/manifest\.webmanifest$
+      - --skip-auth-route=^/icons/
+      - --skip-auth-route=^/(favicon\.ico|apple-touch-icon\.png)$
+    volumes:
+      - ./authenticated-emails.txt:/etc/oauth2-proxy/emails.txt:ro
+    # Loopback only: reachable by the host's tailscaled, not by the LAN.
+    ports:
+      - "127.0.0.1:4180:4180"
+    depends_on:
+      - frontend
+
+volumes:
+  streak_pgdata:

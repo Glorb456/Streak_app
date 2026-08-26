@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(curl -sI http://127.0.0.1:4180/)",
+      "Bash(curl -si http://127.0.0.1:4180/api/settings)",
+      "Bash(curl -sI http://127.0.0.1:3000/)"
+    ]
+  }
+}
