@@ -41,8 +41,15 @@ async def connect_and_init() -> None:
     else:
         raise RuntimeError(f"could not connect to database: {last_err}")
 
+    # Backup and mirror nodes must start EMPTY and receive everything — seed
+    # rows included, with the host's uids — from the host. Seeding them
+    # locally would mint 'Math', 'Exercise' etc. under fresh uids, and the
+    # first merge would then duplicate every seeded row.
+    skip_seed = os.environ.get("SYNC_ROLE", "") in ("backup", "mirror")
     async with _pool.acquire() as conn:
         for path in sorted((SQL_DIR / "init").glob("*.sql")):
+            if skip_seed and path.name == "002_seed.sql":
+                continue
             await conn.execute(path.read_text())
 
 

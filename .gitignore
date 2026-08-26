@@ -6,3 +6,8 @@ __pycache__/
 *.pyc
 notes/notebook/*
 !notes/notebook/.gitkeep
+# Multi-node sync / buddy mirror local state (all machine-specific secrets)
+.env
+.env.mirror
+mirror-emails.txt
+mirror-notebook/

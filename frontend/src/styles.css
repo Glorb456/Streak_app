@@ -1023,3 +1023,102 @@ body {
   font-size: 16px;
   color: rgba(60, 50, 30, 0.55);
 }
+
+/* ------------------------------ sync conflicts + failover (multi-node) */
+
+.conflicts-btn {
+  background: #a5541a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.conflicts-btn:hover { background: #8a4514; }
+
+.conflicts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+.conflicts-modal {
+  background: #232323;
+  color: #e6e6e6;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 14px;
+}
+.conflicts-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.conflicts-head button {
+  background: transparent;
+  color: #bbb;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.conflicts-empty { color: #9a9a9a; padding: 10px 2px; font-size: 14px; }
+.conflict-row {
+  border-top: 1px solid #333;
+  padding: 10px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.conflict-what { display: flex; justify-content: space-between; gap: 8px; }
+.conflict-when { color: #9a9a9a; font-size: 12px; }
+.conflict-versions { display: flex; flex-direction: column; gap: 3px; }
+.conflict-versions > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conflict-tag {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+.conflict-tag.kept { background: #2e5d34; color: #cde8d0; }
+.conflict-tag.lost { background: #5d2e2e; color: #e8cdcd; }
+.conflict-actions { display: flex; gap: 8px; }
+.conflict-actions button {
+  background: transparent;
+  color: #bbb;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.conflict-actions button:hover { background: rgba(255,255,255,0.08); }
+
+.failover-edit {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1b1b1b;
+  color: #e6e6e6;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}

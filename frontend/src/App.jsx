@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js'
+import { failoverOnError, rememberFailover } from './failover.js'
 import { iso, monthWeeks, todayIso, MONTH_NAMES } from './dates.js'
 import { applyVisibleOrder, firstTaskIdOn, orderTasks, tasksOn } from './tasks.js'
 import DailyBar from './components/DailyBar.jsx'
@@ -8,6 +9,7 @@ import TaskModal from './components/TaskModal.jsx'
 import SettingsMenu from './components/SettingsMenu.jsx'
 import DayTaskList from './components/DayTaskList.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
+import ConflictsModal from './components/ConflictsModal.jsx'
 
 export default function App() {
   const now = new Date()
@@ -23,6 +25,10 @@ export default function App() {
 
   const [online, setOnline] = useState(navigator.onLine)
   const [syncing, setSyncing] = useState(false)
+  // Multi-node sync bookkeeping: unresolved-conflict count for the badge,
+  // and whether the resolver modal is open.
+  const [syncInfo, setSyncInfo] = useState(null)
+  const [conflictsOpen, setConflictsOpen] = useState(false)
   const [modal, setModal] = useState(null) // {mode:'new', date} | {mode:'edit', task}
   // A drag pauses the poll for the same reason an open modal does: a refresh
   // landing mid-drag would swap the rows out from under the pointer.
@@ -38,13 +44,16 @@ export default function App() {
     if (!navigator.onLine) return
     setSyncing(true)
     try {
-      const [cats, daily, sett, ts, comps, stk] = await Promise.all([
+      const [cats, daily, sett, ts, comps, stk, sst] = await Promise.all([
         api.categories(),
         api.dailyTasks(),
         api.settings(),
         api.tasks(rangeStart, rangeEnd),
         api.completions(rangeStart, rangeEnd),
         api.streak(todayIso()),
+        // Conflict count + node role; must never take the whole sync down
+        // with it (e.g. an older backend without the sync routes).
+        api.syncStatus().catch(() => null),
       ])
       setCategories(cats)
       setDailyTasks(daily)
@@ -52,8 +61,15 @@ export default function App() {
       setTasks(ts)
       setCompletions(comps)
       setStreak(stk.streak)
+      setSyncInfo(sst)
+      // Cache the failover chain while the server is reachable — the moment
+      // it's needed is exactly the moment this server can't hand it over.
+      rememberFailover(sett)
     } catch (e) {
       console.error('sync failed', e)
+      // The server may be gone, not just this request: walk the failover
+      // chain (throttled; no-op when it's the network that's down).
+      failoverOnError()
     } finally {
       setSyncing(false)
     }
@@ -238,6 +254,15 @@ export default function App() {
           >
             {hideDone ? '☑' : '☐'} <span className="label">Hide done</span>
           </button>
+          {syncInfo?.conflicts > 0 && (
+            <button
+              className="conflicts-btn"
+              onClick={() => setConflictsOpen(true)}
+              title="Two devices edited the same thing while apart — review"
+            >
+              ⚠ <span className="label">{syncInfo.conflicts}</span>
+            </button>
+          )}
         </div>
         <div className="month-nav">
           <span className="month-title">{MONTH_NAMES[month]} {year}</span>
@@ -295,6 +320,13 @@ export default function App() {
       {/* Floats over everything, draggable, and stores its notes in Streak
           Notes. Outside the modal branch so it stays reachable either way. */}
       <StickyNotes />
+
+      {conflictsOpen && (
+        <ConflictsModal
+          onClose={() => setConflictsOpen(false)}
+          onChanged={syncAll}
+        />
+      )}
 
       {modal && (
         <TaskModal

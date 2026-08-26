@@ -488,3 +488,48 @@ it was, and the *whole* day is what gets sent.
   the teal moving on drag and on delete, exactly one highlighted row, and a
   reorder under `hide done` leaving the hidden task in its middle slot.
   Re-verify by hand from this list if the drag or the ordering is touched again.
+
+---
+
+## Multi-node sync: backups, failover, buddy backup (2026-08-26)
+
+Redundancy pass: every machine now runs this same stack with a role from
+`.env` (`host` / `backup` / `mirror`), merging two-way so the app keeps
+working through a host outage and reconciles afterwards. **Backend: 82
+passed** (20 new in `tests/test_sync.py`) · **Notes: 78 passed** (11 new in
+`tests/test_filesync.py`) · **Frontend: 73 passed**, builds clean. Verified
+live with two full stacks: seed/pull convergence, both directions, notes
+files, an outage with queued writes, a forced two-sided edit conflict, its
+restore propagating back, deletion tombstones, and token auth.
+
+- **Schema** (`backend/app/sql/init/003_sync.sql`): every replicated row
+  gains a global `uid` + `updated_at` (kept honest by a touch trigger that a
+  sync import bypasses via `SET LOCAL streak.sync`), hard deletes are
+  recorded in `sync_deletions`, merge losers in `sync_conflicts`, per-peer
+  watermarks in `sync_peers`. Backup/mirror nodes skip the seed (`db.py`) so
+  seeded rows arrive from the host under the host's uids.
+- **Sync core** (`backend/app/sync.py`, `routers/sync.py`): export/import by
+  uid, last-writer-wins with conflict logging when both sides changed since
+  the watermark; FKs travel as `*_uid`, serial ids never leave a node. The
+  engine loop (backup: ~30 s, mirror: ~10 min) pulls then pushes against the
+  host. Machine routes live under `/api/sync/peer/*` behind a pre-shared
+  `X-Sync-Token` (the only routes oauth2-proxy skips); status/conflicts stay
+  behind Google.
+- **Notes sync** (`backend/app/notesync.py`, `notes/.../routers/sync.py`):
+  rsync-shaped — manifest with sha256 + mtimes (writes preserve mtime),
+  tombstones recorded on delete *and rename* (renamed targets get an
+  explicitly-later mtime; file clocks are coarser than `time.time()`),
+  concurrent edits keep the loser as a "(conflict …)" copy.
+- **Frontend**: `failover.js` walks the configured origin chain (Settings →
+  Backups & failover; cached in localStorage) top-down and stops at the first
+  live node; `public/sw.js` is a shell-only, network-first service worker so
+  the PWA can open while its origin is down (never touches /api, /oauth2,
+  /notes); ⚠ badge + `ConflictsModal.jsx` is the bare-bones resolver.
+- **Buddy backup**: `docker-compose.mirror.yml` runs a friend's full stack
+  beside your own, locked to *their* Google allowlist (host serves, can't
+  log in); mirrors only from the owner's host. Alternative encrypted mode:
+  the host pushes AES-256-GCM snapshots to `/api/sync/peer/blob` (buddy
+  stores ciphertext only), restored by `scripts/restore_blob.py`.
+- **Windows companion** (`companion/`): Electron tray app that clones/updates
+  the stack from GitHub (daily + on demand), manages Docker, shows the web
+  app in a native window, and installs buddy mirrors from two pasted files.

@@ -25,6 +25,12 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(os.environ.get("NOTEBOOK_DIR", "/notebook"))
 META_NAME = ".streaknotes.json"
+# Deleted paths + when, for the sync layer: without this a page deleted on one
+# node would look like a page *missing* on that node and be restored by the
+# next merge. Entries older than 90 days are pruned — by then every node that
+# will ever hear about the delete has.
+TOMBSTONES_NAME = ".sync-tombstones.json"
+TOMBSTONE_TTL = 90 * 24 * 3600
 
 MD_EXT = ".md"
 DRAW_EXT = ".draw.json"
@@ -215,6 +221,45 @@ def _ordered(names: list[str], order: list) -> list[str]:
     return sorted(names, key=lambda n: (pos.get(n, len(pos)), n.lower()))
 
 
+# --------------------------------------------------------- tombstones
+
+def read_tombstones() -> dict:
+    try:
+        data = json.loads((ROOT / TOMBSTONES_NAME).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_tombstones(tombs: dict) -> None:
+    import time
+
+    cutoff = time.time() - TOMBSTONE_TTL
+    tombs = {p: ts for p, ts in tombs.items() if isinstance(ts, (int, float)) and ts > cutoff}
+    ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = ROOT / f"{TOMBSTONES_NAME}.tmp"
+    tmp.write_text(json.dumps(tombs, indent=0))
+    os.replace(tmp, ROOT / TOMBSTONES_NAME)
+
+
+def record_tombstones(rel_paths: list[str], ts: float | None = None) -> float:
+    import time
+
+    tombs = read_tombstones()
+    stamp = ts if ts is not None else time.time()
+    for p in rel_paths:
+        tombs[p] = stamp
+    _write_tombstones(tombs)
+    return stamp
+
+
+def clear_tombstone(rel_path: str) -> None:
+    tombs = read_tombstones()
+    if rel_path in tombs:
+        del tombs[rel_path]
+        _write_tombstones(tombs)
+
+
 # ----------------------------------------------------------- snippets
 
 _FENCE = re.compile(r"^\s*(```|~~~)")
@@ -387,7 +432,16 @@ def update_section(ident: str, name: str | None, color: str | None) -> dict:
         target = ROOT / safe_name(name)
         if target.exists():
             raise StoreError(409, "a section with that name already exists")
+        # A directory rename moves every page: tombstone the old paths so the
+        # sync doesn't resurrect the whole section under its old name.
+        stamp = record_tombstones([
+            p.relative_to(ROOT).as_posix() for p in path.rglob("*") if p.is_file()
+        ])
         path.rename(target)
+        # Same mtime reasoning as the page rename above.
+        for p in target.rglob("*"):
+            if p.is_file():
+                os.utime(p, (stamp + 0.01, stamp + 0.01))
         # Carry the colour and page order across, or the rename would read as
         # a delete-and-recreate in the sidebar.
         meta["sections"][target.name] = meta["sections"].pop(old, {})
@@ -406,6 +460,9 @@ def delete_section(ident: str) -> None:
     # The notes inside it are deletable; the section itself is not.
     if path.name == STICKY_SECTION:
         raise StoreError(403, f"“{STICKY_SECTION}” cannot be deleted")
+    record_tombstones([
+        p.relative_to(ROOT).as_posix() for p in path.rglob("*") if p.is_file()
+    ])
     for child in sorted(path.rglob("*"), reverse=True):
         child.rmdir() if child.is_dir() else child.unlink()
     path.rmdir()
@@ -471,7 +528,18 @@ def update_page(
             target = path.with_name(new_name)
             if target.exists():
                 raise StoreError(409, "a page with that name already exists")
+            # To the file-level sync a rename is delete-old + create-new; the
+            # tombstone is what stops the old name coming back on merge. The
+            # target is touched because rename preserves mtime: without it, a
+            # page renamed back to a name that was tombstoned earlier would
+            # look *older* than that tombstone and be deleted by the merge.
+            # The mtime is set explicitly to sit after the tombstone — file
+            # timestamps come from a coarser kernel clock than time.time(),
+            # so "touch now" can land a tick *before* a stamp taken just
+            # before it.
+            stamp = record_tombstones([path.relative_to(ROOT).as_posix()])
             path.rename(target)
+            os.utime(target, (stamp + 0.01, stamp + 0.01))
             meta = _read_meta()
             smeta = _section_meta(meta, path.parent.name)
             smeta["pages"] = [
@@ -486,6 +554,7 @@ def delete_page(ident: str) -> None:
     path = decode_id(ident)
     if not path.is_file() or not kind_of(path.name):
         raise StoreError(404, "page not found")
+    record_tombstones([path.relative_to(ROOT).as_posix()])
     path.unlink()
     meta = _read_meta()
     smeta = _section_meta(meta, path.parent.name)

@@ -1,0 +1,113 @@
+# Buddy mirror: a complete second Streak stack that holds SOMEONE ELSE'S data.
+#
+# Run this on the buddy's machine, next to (and independent of) their own
+# stack:   docker compose -f docker-compose.mirror.yml --env-file .env.mirror up -d --build
+#
+# It pulls the owner's host every MIRROR interval (slow on purpose — this is
+# the last rung of the failover ladder, not a hot standby), serves the same
+# web app on its own port/Funnel URL, and pushes any disaster-time writes back
+# when the owner's host returns. Access control is the OWNER'S: the oauth
+# env file and email allowlist come from the owner, so the buddy hosts the
+# service but cannot log into it. (The data is not encrypted at rest here —
+# it can't be, or the mirror couldn't serve it. A buddy the owner doesn't
+# trust with plaintext should get the encrypted-blob mode instead; README.)
+#
+# Everything sensitive lives in .env.mirror (owner-provided):
+#   MIRROR_SYNC_TOKEN, MIRROR_UPSTREAM, MIRROR_OAUTH_REDIRECT_URL,
+#   plus OAUTH2_PROXY_CLIENT_ID / _CLIENT_SECRET / _COOKIE_SECRET,
+# and the owner's allowlist in mirror-emails.txt.
+name: streak_mirror
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: streak
+      POSTGRES_USER: streak
+      POSTGRES_PASSWORD: streak_local_pw
+    volumes:
+      - streak_mirror_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streak -d streak"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://streak:streak_local_pw@db:5432/streak
+      SYNC_ROLE: mirror
+      SYNC_TOKEN: ${MIRROR_SYNC_TOKEN:?set in .env.mirror}
+      SYNC_UPSTREAM: ${MIRROR_UPSTREAM:?owner host URL, e.g. https://owner.tailXXXX.ts.net}
+      SYNC_INTERVAL: ${MIRROR_INTERVAL:-600}
+      NOTES_INTERNAL_URL: http://notes-backend:8000
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3100:80"
+    depends_on:
+      - backend
+      - notes-backend
+      - notes-frontend
+
+  notes-backend:
+    build: ./notes/backend
+    restart: unless-stopped
+    environment:
+      NOTEBOOK_DIR: /notebook
+      SYNC_TOKEN: ${MIRROR_SYNC_TOKEN:?set in .env.mirror}
+    user: "${NOTES_UID:-1000}:${NOTES_GID:-1000}"
+    volumes:
+      # The owner's notebook, mirrored as real files under this repo clone.
+      - ./mirror-notebook:/notebook
+
+  notes-frontend:
+    build: ./notes/frontend
+    restart: unless-stopped
+    depends_on:
+      - notes-backend
+
+  # The OWNER'S auth in front of the mirror: their OAuth client, their email
+  # allowlist. The buddy's own Google account is simply not on the list.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID:?owner-provided}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?owner-provided}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?owner-provided}
+    command:
+      - --provider=google
+      - --http-address=0.0.0.0:4180
+      - --redirect-url=${MIRROR_OAUTH_REDIRECT_URL:?buddy Funnel URL + /oauth2/callback}
+      - --upstream=http://frontend:80
+      - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
+      - --email-domain=*
+      - --cookie-secure=true
+      - --cookie-expire=720h
+      - --cookie-refresh=0
+      - --reverse-proxy=true
+      - --skip-provider-button=true
+      - --api-route=^/api
+      - --skip-auth-route=^/manifest\.webmanifest$
+      - --skip-auth-route=^/icons/
+      - --skip-auth-route=^/(favicon\.ico|apple-touch-icon\.png)$
+      - --skip-auth-route=^/api/sync/peer/
+      - --skip-auth-route=^/api/notes/sync/
+    volumes:
+      - ./mirror-emails.txt:/etc/oauth2-proxy/emails.txt:ro
+    ports:
+      - "127.0.0.1:4181:4180"
+    depends_on:
+      - frontend
+
+volumes:
+  streak_mirror_pgdata:

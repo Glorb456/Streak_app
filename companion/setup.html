@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Streak Companion — Settings</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #191919; color: #e6e6e6; margin: 0; padding: 22px; }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 22px 0 6px; border-top: 1px solid #333; padding-top: 14px; }
+    p, label { font-size: 13px; color: #bbb; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+    .row label { width: 170px; flex: none; color: #ddd; }
+    input[type=text], input[type=password], select, textarea {
+      flex: 1; background: #232323; color: #e6e6e6; border: 1px solid #3a3a3a;
+      border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit;
+    }
+    textarea { min-height: 90px; font-family: Consolas, monospace; }
+    button {
+      background: #2f6fed; color: white; border: none; border-radius: 6px;
+      padding: 8px 14px; font-size: 13px; cursor: pointer;
+    }
+    button.plain { background: transparent; color: #bbb; border: 1px solid #3a3a3a; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    #tools { font-size: 13px; }
+    #tools .bad { color: #e0553e; }
+    #tools .good { color: #3fb56b; }
+    #log {
+      background: #111; border: 1px solid #333; border-radius: 6px; padding: 10px;
+      font-family: Consolas, monospace; font-size: 12px; min-height: 70px;
+      max-height: 180px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px;
+    }
+    .hint { font-size: 12px; color: #8a8a8a; }
+  </style>
+</head>
+<body>
+  <h1>Streak Companion</h1>
+  <p>This machine runs its own full copy of Streak in Docker and keeps it in sync.</p>
+  <div id="tools">checking for Docker and Git…</div>
+
+  <h2>This machine</h2>
+  <div class="row"><label>Role</label>
+    <select id="role">
+      <option value="backup">Backup — syncs with a host every ~30s, serves when the host is down</option>
+      <option value="host">Host — the main machine other nodes sync with</option>
+    </select>
+  </div>
+  <div class="row"><label>Repository URL</label><input type="text" id="repoUrl" placeholder="https://github.com/you/streak.git" /></div>
+  <div class="row"><label>Install folder</label><input type="text" id="repoDir" placeholder="C:\Streak" /><button class="plain" id="pick">Browse…</button></div>
+  <div class="row"><label>Sync token</label><input type="password" id="token" placeholder="shared secret, same on all your nodes" /></div>
+  <div class="row" id="upstreamRow"><label>Host URL (upstream)</label><input type="text" id="upstream" placeholder="http://100.x.y.z:3000 (host's Tailscale IP) or its Funnel URL" /></div>
+  <div class="row"><label>This machine's Funnel callback</label><input type="text" id="redirectUrl" placeholder="https://this-pc.tailXXXX.ts.net/oauth2/callback (optional until you Funnel this node)" /></div>
+  <p class="hint">
+    The token must match the host's SYNC_TOKEN. For web-client failover, add this
+    machine's Funnel URL to the chain under Settings → Backups &amp; failover inside Streak.
+  </p>
+  <div class="row">
+    <button id="install">Install / Update &amp; Start</button>
+    <button class="plain" id="start">Start</button>
+    <button class="plain" id="stop">Stop</button>
+    <button class="plain" id="open">Open Streak</button>
+    <span id="status" class="hint"></span>
+  </div>
+
+  <h2>Buddy mirror (host someone else's backup)</h2>
+  <p class="hint">
+    Paste the two files your buddy sends you. Their data stays locked behind
+    <i>their</i> Google account — this machine serves it but cannot log into it.
+    The mirror runs beside your own stack on port 3100.
+  </p>
+  <div class="row"><label>.env.mirror contents</label><textarea id="mirrorEnv" placeholder="MIRROR_SYNC_TOKEN=…&#10;MIRROR_UPSTREAM=…&#10;OAUTH2_PROXY_CLIENT_ID=…"></textarea></div>
+  <div class="row"><label>mirror-emails.txt contents</label><textarea id="mirrorEmails" placeholder="buddy@gmail.com"></textarea></div>
+  <div class="row"><button id="mirrorInstall">Install / Update mirror</button></div>
+
+  <div id="log"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id)
+    const log = (m) => { $('log').textContent += m + '\n'; $('log').scrollTop = 1e9 }
+    window.companion.onLog(log)
+
+    async function refresh() {
+      const t = await window.companion.checkTools()
+      $('tools').innerHTML =
+        `Docker Desktop: <span class="${t.docker ? 'good' : 'bad'}">${t.docker ? 'found' : 'MISSING — install from docker.com/products/docker-desktop'}</span> · ` +
+        `Git: <span class="${t.git ? 'good' : 'bad'}">${t.git ? 'found' : 'MISSING — install from git-scm.com'}</span>`
+      $('status').textContent = await window.companion.stackStatus()
+    }
+
+    async function init() {
+      const cfg = await window.companion.getConfig()
+      $('role').value = cfg.role || 'backup'
+      $('repoUrl').value = cfg.repoUrl || cfg.defaultRepoUrl || ''
+      $('repoDir').value = cfg.repoDir || 'C:\\Streak'
+      $('token').value = cfg.token || ''
+      $('upstream').value = cfg.upstream || ''
+      $('redirectUrl').value = cfg.redirectUrl || ''
+      onRole()
+      refresh()
+    }
+
+    function onRole() {
+      $('upstreamRow').style.display = $('role').value === 'backup' ? 'flex' : 'none'
+    }
+    $('role').addEventListener('change', onRole)
+
+    async function save() {
+      await window.companion.saveConfig({
+        role: $('role').value,
+        repoUrl: $('repoUrl').value.trim(),
+        repoDir: $('repoDir').value.trim(),
+        token: $('token').value.trim(),
+        upstream: $('upstream').value.trim().replace(/\/+$/, ''),
+        redirectUrl: $('redirectUrl').value.trim(),
+      })
+    }
+
+    $('pick').addEventListener('click', async () => {
+      const dir = await window.companion.pickDir()
+      if (dir) $('repoDir').value = dir
+    })
+    $('install').addEventListener('click', async () => {
+      await save()
+      $('install').disabled = true
+      const r = await window.companion.install()
+      log(r.message)
+      $('install').disabled = false
+      refresh()
+    })
+    $('start').addEventListener('click', async () => { await save(); await window.companion.start(); refresh() })
+    $('stop').addEventListener('click', async () => { await window.companion.stop(); refresh() })
+    $('open').addEventListener('click', () => window.companion.openApp())
+    $('mirrorInstall').addEventListener('click', async () => {
+      const r = await window.companion.installMirror({
+        envText: $('mirrorEnv').value,
+        emailsText: $('mirrorEmails').value,
+      })
+      log(r.message || (r.ok ? 'Mirror is up.' : 'Mirror install failed.'))
+    })
+
+    init()
+  </script>
+</body>
+</html>

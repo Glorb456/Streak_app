@@ -15,8 +15,10 @@ const NOTES_URL = '/notes/'
 // and the streak emoji itself.
 export default function SettingsMenu({ categories, dailyTasks, settings, streak, onChanged }) {
   const [open, setOpen] = useState(false)
-  const [panel, setPanel] = useState(null) // 'categories' | 'daily' | 'background' | 'emoji'
+  const [panel, setPanel] = useState(null) // 'categories' | 'daily' | 'background' | 'emoji' | 'failover'
   const [emojiDraft, setEmojiDraft] = useState('')
+  const [failoverDraft, setFailoverDraft] = useState('')
+  const [syncStatus, setSyncStatus] = useState(null)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -67,6 +69,21 @@ export default function SettingsMenu({ categories, dailyTasks, settings, streak,
           <button onClick={() => setPanel('daily')}>Change daily tasks + colors</button>
           <button onClick={() => setPanel('background')}>Change background color</button>
           <button onClick={() => { setEmojiDraft(emoji); setPanel('emoji') }}>Change streak emoji</button>
+          <button
+            onClick={() => {
+              // The stored value is a JSON array; the editor is one URL per
+              // line because that's the whole UI this needs.
+              let lines = ''
+              try { lines = (JSON.parse(settings.failover_origins || '[]') || []).join('\n') }
+              catch { lines = '' }
+              setFailoverDraft(lines)
+              setSyncStatus(null)
+              api.syncStatus().then(setSyncStatus).catch(() => {})
+              setPanel('failover')
+            }}
+          >
+            Backups &amp; failover
+          </button>
           {/* Streak Notes is a separate app on the same origin, so this is a
               plain navigation: one oauth2-proxy session already covers both
               and there is no second login on the way over. */}
@@ -103,6 +120,52 @@ export default function SettingsMenu({ categories, dailyTasks, settings, streak,
           <div className="panel-row">
             <span className="panel-hint">current streak: {streak}</span>
           </div>
+        </div>
+      )}
+
+      {open && panel === 'failover' && (
+        <div className="dropdown panel">
+          <div className="panel-title">Failover chain</div>
+          <div className="panel-row">
+            <span className="panel-hint">
+              One URL per line, most preferred first: host, then backups, then
+              a buddy mirror. Every device tries them in this order and stops
+              at the first one that answers.
+            </span>
+          </div>
+          <textarea
+            className="failover-edit"
+            rows={4}
+            placeholder={'https://host.tailXXXX.ts.net\nhttps://backup.tailXXXX.ts.net\nhttps://buddy.tailXXXX.ts.net:8443'}
+            value={failoverDraft}
+            onChange={(e) => setFailoverDraft(e.target.value)}
+          />
+          <div className="panel-row">
+            <button
+              className="panel-save"
+              onClick={() => {
+                const list = failoverDraft
+                  .split('\n').map((s) => s.trim().replace(/\/+$/, ''))
+                  .filter(Boolean)
+                call(() => api.setSetting('failover_origins', JSON.stringify(list)))
+              }}
+            >
+              Save
+            </button>
+            <button onClick={() => call(() => api.syncNow())}>Sync now</button>
+          </div>
+          {syncStatus && (
+            <div className="panel-row">
+              <span className="panel-hint">
+                {syncStatus.role
+                  ? `This node: ${syncStatus.role}` +
+                    (syncStatus.upstream ? ` → ${syncStatus.upstream}` : '') +
+                    (syncStatus.last_ok ? ` · last sync ${new Date(syncStatus.last_ok).toLocaleTimeString()}` : '') +
+                    (syncStatus.last_error ? ` · last error: ${syncStatus.last_error}` : '')
+                  : 'Sync is not configured on this node (single-node install).'}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

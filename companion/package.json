@@ -1,0 +1,36 @@
+{
+  "name": "streak-companion",
+  "version": "1.0.0",
+  "description": "Windows companion for Streak: runs a local backup (or host, or buddy mirror) of the Streak stack and wraps it in a native window.",
+  "main": "main.js",
+  "author": "streak",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.streak.companion",
+    "productName": "Streak Companion",
+    "files": [
+      "main.js",
+      "preload.js",
+      "setup.html",
+      "assets/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
+}

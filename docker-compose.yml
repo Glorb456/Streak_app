@@ -24,6 +24,27 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://streak:streak_local_pw@db:5432/streak
+      # --- sync (all optional; see README "Backups & buddy backup") ---
+      # Role of this node: host | backup | mirror | empty (plain single-node).
+      SYNC_ROLE: ${SYNC_ROLE:-}
+      # Pre-shared secret between this user's nodes (and handed to a buddy
+      # hosting the mirror). Machine auth only; Google still guards humans.
+      SYNC_TOKEN: ${SYNC_TOKEN:-}
+      # backup/mirror: base URL of the node to sync with (the host), e.g.
+      # http://<host-tailnet-ip>:3000 or https://<host-funnel>.
+      SYNC_UPSTREAM: ${SYNC_UPSTREAM:-}
+      # Seconds between sync cycles. Default 30 for backups, 600 for mirrors.
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-}
+      # Where the engine reaches the local notes app to sync the notebook.
+      NOTES_INTERNAL_URL: http://notes-backend:8000
+      # host only, optional: encrypted snapshots to a buddy (see README).
+      BUDDY_BLOB_URL: ${BUDDY_BLOB_URL:-}
+      BUDDY_BLOB_KEY: ${BUDDY_BLOB_KEY:-}
+      BUDDY_BLOB_TOKEN: ${BUDDY_BLOB_TOKEN:-}
+      BLOB_INTERVAL: ${BLOB_INTERVAL:-21600}
+    volumes:
+      # Encrypted snapshot store (only used when a buddy pushes blobs here).
+      - streak_blobs:/blobs
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +67,8 @@ services:
     restart: unless-stopped
     environment:
       NOTEBOOK_DIR: /notebook
+      # Same machine token as the task backend: guards /api/notes/sync.
+      SYNC_TOKEN: ${SYNC_TOKEN:-}
     # As the host user, not root. The notebook is a bind mount whose whole
     # point is that the owner can open and edit the .md files directly, and a
     # root-owned tree would make that need sudo. Override in .env if the
@@ -73,7 +96,10 @@ services:
     command:
       - --provider=google
       - --http-address=0.0.0.0:4180
-      - --redirect-url=https://siddhant-xps-8940.tail824e0c.ts.net/oauth2/callback
+      # Per-machine: each node (host, every backup) has its own Funnel URL,
+      # set in .env; the historical hardcoded value stays the default so the
+      # original host keeps working with no .env change.
+      - --redirect-url=${OAUTH_REDIRECT_URL:-https://siddhant-xps-8940.tail824e0c.ts.net/oauth2/callback}
       - --upstream=http://frontend:80
       - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
       - --email-domain=*
@@ -93,6 +119,13 @@ services:
       - --skip-auth-route=^/manifest\.webmanifest$
       - --skip-auth-route=^/icons/
       - --skip-auth-route=^/(favicon\.ico|apple-touch-icon\.png)$
+      # Machine-to-machine sync: a syncing node holds no Google cookie, so
+      # these are skipped here and enforce the pre-shared X-Sync-Token
+      # themselves (403 when sync is not configured). Only the /peer/ and
+      # notes-sync surfaces are skipped — /api/sync/status and the conflicts
+      # endpoints stay behind Google like every other /api route.
+      - --skip-auth-route=^/api/sync/peer/
+      - --skip-auth-route=^/api/notes/sync/
     volumes:
       - ./authenticated-emails.txt:/etc/oauth2-proxy/emails.txt:ro
     # Loopback only: reachable by the host's tailscaled, not by the LAN.
@@ -103,3 +136,4 @@ services:
 
 volumes:
   streak_pgdata:
+  streak_blobs:

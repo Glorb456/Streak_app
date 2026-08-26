@@ -20,7 +20,8 @@ from app.main import app
 INIT_FILES = sorted((SQL_DIR / "init").glob("*.sql"))
 TABLES = (
     "categories, projects, tasks, daily_tasks, "
-    "daily_task_completions, settings"
+    "daily_task_completions, settings, "
+    "sync_deletions, sync_conflicts, sync_peers"
 )
 
 

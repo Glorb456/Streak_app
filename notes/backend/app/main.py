@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import store
-from .routers import notebook
+from .routers import notebook, sync
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(notebook.router)
+app.include_router(sync.router)
 
 
 @app.get("/api/notes/health")

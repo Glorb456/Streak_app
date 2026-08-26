@@ -52,6 +52,14 @@ export const api = {
 
   settings: () => req('/settings'),
   setSetting: (key, value) => req('/settings', { method: 'PUT', body: JSON.stringify({ key, value }) }),
+
+  // Multi-node sync (host/backup/mirror). status is cheap and rides the poll;
+  // conflicts is the bare-bones resolver's list.
+  syncStatus: () => req('/sync/status'),
+  syncNow: () => req('/sync/now', { method: 'POST' }),
+  syncConflicts: () => req('/sync/conflicts'),
+  resolveConflict: (id, restore) =>
+    req(`/sync/conflicts/${id}/resolve`, { method: 'POST', body: JSON.stringify({ restore }) }),
 }
 
 // Streak Notes' API, reached through the same nginx and the same oauth2-proxy

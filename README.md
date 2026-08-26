@@ -112,8 +112,69 @@ build is a plain copy. Regenerate them after changing that file:
 python3 frontend/scripts/make_icons.py
 ```
 
-There is no service worker, deliberately — Add to Home Screen doesn't need one,
-and it would fight both the 5 s poll and oauth2-proxy's redirects.
+There is one deliberately tiny service worker (`frontend/public/sw.js`) that
+caches only the app shell, never touches `/api`, `/oauth2` or `/notes`, and
+answers only when the network can't. It exists so the installed app can still
+*open* while its origin is down and walk the failover chain (below); online
+behaviour — the 5 s poll and oauth2-proxy's redirects included — is untouched.
+
+## Backups, failover & buddy backup
+
+Streak is multi-node: every machine runs this same stack, and a `.env` file
+decides its role (see `.env.example`). If the host's wifi or power dies,
+nothing is lost and nothing stops working.
+
+```
+web clients try, in order, and stop at the first one that answers:
+  host  ->  backup(s)  ->  buddy mirror
+   |            |               |
+   |  <--- 2-way sync, ~30s --->|          backups: your other machines
+   |  <------- 2-way sync, ~10min -------> mirror: a friend's machine
+```
+
+- **Roles.** One *host* (the hub; what you run today), any number of
+  *backups* (your other machines; full read-write copies syncing every ~30 s),
+  and optionally one *mirror* on a buddy's machine (slow refresh, last
+  resort). Rows travel by globally-unique `uid`, merge is last-writer-wins on
+  `updated_at`, deletes carry tombstones, and the notes notebook syncs
+  file-by-file with the same rules. Machine-to-machine calls use a pre-shared
+  `SYNC_TOKEN` (`/api/sync/peer/*` — the only routes oauth2-proxy skips);
+  humans still sign in with Google exactly as before, on every node.
+
+- **Failover.** Inside the app: **Settings → Backups & failover**, one URL
+  per line, most-preferred first. Every device caches the chain and, when its
+  current node stops answering, walks it top-down and stops at the first live
+  node — while the host is up, backups and the mirror are never even probed.
+  When the host recovers, clients return to it the next time they open.
+
+- **Offline edits & conflicts.** A backup keeps accepting writes while the
+  host is down and pushes them back when it returns. If the same item was
+  edited on both sides while apart, the newer edit wins immediately and a ⚠
+  badge appears in the top bar — a bare-bones list where either version can
+  be kept or restored.
+
+- **Windows machines** run all of this through the native
+  [Streak Companion](companion/README.md) app: installs the stack from
+  GitHub, keeps it updated (`git pull` + rebuild, daily or on demand), shows
+  the app in its own window, and sets up buddy mirrors by pasting two files.
+
+- **Buddy backup.** A friend hosts a mirror of your Streak (and you can host
+  theirs): a fully separate stack (`docker-compose.mirror.yml`) on their
+  machine that only *your* Google account can log into — their email simply
+  isn't on the mirror's allowlist. You hand them `.env.mirror` +
+  `mirror-emails.txt` (from `.env.mirror.example`); they run it and Funnel it
+  (`tailscale funnel --bg --https=8443 3100`). It mirrors only from your
+  *host*, never from your backups, and web clients only reach it when
+  everything above it in the chain is dead. If neither of you wants the
+  other's data readable at rest, use encrypted snapshots instead
+  (`BUDDY_BLOB_*` in `.env.example`): the buddy stores AES-256-GCM blobs they
+  can't decrypt, and `scripts/restore_blob.py` brings a fresh stack back from
+  one.
+
+Quick host setup for sync: copy `.env.example` to `.env`, set
+`SYNC_ROLE=host` and a `SYNC_TOKEN` (`openssl rand -hex 32`), then
+`docker compose up -d`. Give the same token to your backups/companion, and
+add each machine's Funnel URL to the failover chain in Settings.
 
 ## Future-proofing
 
