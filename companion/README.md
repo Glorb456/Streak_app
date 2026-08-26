@@ -11,28 +11,80 @@ merges back when the host returns.
 
 - **Windows 10/11**
 - **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (free
-  for personal use) — the stack runs in it
+  for personal use) — the stack runs in it. See the answers to its installer
+  questions below.
 - **[Git for Windows](https://git-scm.com/download/win)** — installs and
   updates come straight from GitHub
 - **[Tailscale](https://tailscale.com/download)** logged into the same
   tailnet as your host (needed for syncing from outside your LAN, and for
   serving web clients via Funnel)
 
-## Install
+### Installing Docker Desktop
 
-1. Download the latest `Streak Companion Setup.exe` from this repo's
-   **GitHub Releases** page and run it (or build it yourself: see below).
-2. The Settings window opens on first launch:
+The installer asks three things. For Streak:
+
+| Question | Answer | Why |
+| --- | --- | --- |
+| Use WSL 2 instead of Hyper-V | **Yes, WSL 2** | Faster, uses less RAM, and works on Windows Home. Hyper-V is the legacy backend and needs Pro/Enterprise. |
+| Windows containers | **Leave unchecked** | Every Streak image (Postgres, Python, nginx) is a Linux container. Windows containers can't run them. |
+| Per-user or all-users install | **All users**, if offered the choice | Nothing in Streak needs it, but a system-wide install keeps working if you ever add a second Windows account, and it's the better-trodden path. Per-user is fine if you'd rather not enter an admin password. |
+
+If WSL 2 isn't set up yet, Docker will prompt you — accept, and run
+`wsl --install` from an admin PowerShell if it asks. Virtualization must be
+enabled in the BIOS/UEFI (it usually already is).
+
+**Then, because this machine is a backup, make sure it comes back by itself
+after a power cut** — otherwise it's offline exactly when you need it:
+
+1. Docker Desktop → Settings → General → tick **Start Docker Desktop when
+   you sign in**.
+2. Windows: set the machine to sign in automatically (`netplwiz`, untick
+   "Users must enter a user name and password"). Docker Desktop only runs
+   while a user is signed in, so without this a reboot leaves the stack down.
+3. In the BIOS/UEFI, set power restore behaviour to **power on** (often
+   "Restore on AC Power Loss").
+
+## Getting the app
+
+**From a GitHub Release** — download `Streak Companion Setup <version>.exe`
+from this repo's **Releases** page and run it. If Releases is empty, no
+version has been tagged yet; use either option below.
+
+**Build it from GitHub without a Windows machine** — the repo has a workflow
+that builds the installer on GitHub's own Windows runners. Go to the repo's
+**Actions** tab → **Build Streak Companion (Windows)** → **Run workflow**.
+When it finishes, download the `streak-companion-windows` artifact from that
+run; the `.exe` is inside. To turn that into a proper Release instead, push a
+tag:
+
+```bash
+git tag companion-v1.0.0 && git push origin companion-v1.0.0
+```
+
+**Run it from source** — on the Windows machine itself, with
+[Node.js 20+](https://nodejs.org/):
+
+```powershell
+git clone https://github.com/Glorb456/Streak_app.git C:\Streak
+cd C:\Streak\companion
+npm install
+npm start          # runs the companion
+npm run dist       # or: build the installer here, output in dist\
+```
+
+## Set it up
+
+1. Launch the companion. The Settings window opens on first launch:
    - **Role**: `Backup` (the usual choice — your main machine is the host).
-   - **Repository URL**: this repo's URL.
+   - **Repository URL**: pre-filled with this repo; change it only for a fork.
    - **Install folder**: e.g. `C:\Streak`.
    - **Sync token**: the same `SYNC_TOKEN` your host uses (see the main
      README's *Backups & buddy backup* section — one `openssl rand -hex 32`
      secret shared by all of your machines).
    - **Host URL**: the host's Tailscale IP + port, e.g. `http://100.x.y.z:3000`
      (best — works even when the host's Funnel is down), or its Funnel URL.
-3. Click **Install / Update & Start**. First build takes a few minutes.
-4. Click **Open Streak** — you're looking at the local copy, which is already
+2. Click **Install / Update & Start**. First build takes a few minutes.
+3. Click **Open Streak** — you're looking at the local copy, which is already
    pulling everything (tasks *and* notes) from the host and syncing every
    ~30 seconds.
 
@@ -94,14 +146,17 @@ your machine then just stores opaque AES-256-GCM blobs it can never read.
 That mode is pure cold backup — it cannot serve web clients — and restores
 with `scripts/restore_blob.py`.
 
-## Building the installer yourself
+## Cutting a new companion release
 
-On a Windows machine with Node.js 20+:
+The companion itself rarely needs updating — it only clones, updates and
+launches the stack, and everything else ships through `git pull`. When it
+does change:
 
-```powershell
-cd companion
-npm install
-npm run dist       # produces dist/ with the NSIS installer + portable exe
+```bash
+git tag companion-v1.1.0 && git push origin companion-v1.1.0
 ```
 
-`npm start` runs it unpackaged for development.
+GitHub builds the installer and publishes it to Releases (see
+`.github/workflows/companion-release.yml`). Bump `version` in
+`companion/package.json` to match the tag first — that number ends up in the
+installer's filename and in Add/Remove Programs.

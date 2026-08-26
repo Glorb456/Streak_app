@@ -19,7 +19,8 @@ const { execFile } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-const REPO_URL = 'https://github.com/YOURUSER/streak.git' // set on first run in Settings
+// Default only — Settings can point a node at a fork or a different branch.
+const REPO_URL = 'https://github.com/Glorb456/Streak_app.git'
 const LOCAL_URL = 'http://localhost:3000'
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json')

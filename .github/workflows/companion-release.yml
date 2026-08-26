@@ -1,0 +1,56 @@
+# Builds the Windows companion installer. GitHub's own windows-latest runner
+# does the build, so no Windows machine is needed to cut a release.
+#
+# Two ways to get an .exe:
+#   - Actions tab -> "Build Streak Companion (Windows)" -> Run workflow.
+#     The installer lands as a downloadable artifact on that run. Use this
+#     for a one-off build or to test a change.
+#   - Push a tag starting with "companion-v" (e.g. companion-v1.0.0). Same
+#     build, but it is also published to a GitHub Release, which is what the
+#     companion README tells people to download.
+name: Build Streak Companion (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'companion-v*'
+
+permissions:
+  contents: write   # required to create the Release on a tag build
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # No package-lock.json is committed for the companion (its only deps
+      # are the build toolchain), so this is `install`, not `ci`.
+      - name: Install build dependencies
+        working-directory: companion
+        run: npm install --no-audit --no-fund
+
+      # --publish never: uploading is this workflow's job, below, so that a
+      # manual run produces an artifact without ever touching Releases.
+      - name: Build installer
+        working-directory: companion
+        run: npx electron-builder --win --publish never
+
+      - name: Upload installer as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: streak-companion-windows
+          path: companion/dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish to Releases (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: companion/dist/*.exe
+          generate_release_notes: true
