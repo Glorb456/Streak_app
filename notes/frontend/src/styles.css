@@ -49,6 +49,11 @@ button { font: inherit; color: inherit; }
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
   flex: none;
+  /* Chrome, not content: a stray double-tap while handwriting must not
+     text-select the page title and pop iOS's Copy / Look Up menu. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .topbar-left, .topbar-right { display: flex; align-items: center; gap: 6px; }
@@ -524,6 +529,11 @@ h6.md-h, .md-input.k-heading.lvl6 { font-size: 17px; font-weight: 600; padding-t
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
+  /* A stray double-tap while handwriting must not text-select a button's
+     glyph — the ⟳ lighting up blue looks like the app pressing redo. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .tool-group { display: flex; align-items: center; gap: 4px; }
 .tool-group.pencils { gap: 2px; }
@@ -541,7 +551,11 @@ h6.md-h, .md-input.k-heading.lvl6 { font-size: 17px; font-weight: 600; padding-t
   line-height: 1;
   cursor: pointer;
 }
-.tool:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+/* Hover only where hover exists: on touch the highlight would stick to the
+   last-tapped tool until something else is tapped. */
+@media (hover: hover) {
+  .tool:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+}
 .tool.on { background: #333; border-color: #4a4a4a; }
 .tool:disabled { opacity: 0.32; cursor: not-allowed; }
 .tool.danger { color: #e57373; }

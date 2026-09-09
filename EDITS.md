@@ -533,3 +533,82 @@ restore propagating back, deletion tombstones, and token auth.
 - **Windows companion** (`companion/`): Electron tray app that clones/updates
   the stack from GitHub (daily + on demand), manages Docker, shows the web
   app in a native window, and installs buddy mirrors from two pasted files.
+
+---
+
+## 2026-09-06 pass: bug fixes + five features
+
+### Bug fixes
+
+1. **Failed task save no longer disappears silently.** `App.jsx`'s `saveTask`
+   had no error handling: with the server unreachable, Save rejected as an
+   unhandled promise, the modal stayed open and nothing said why. It now
+   alerts, resyncs, and keeps the modal (and the typed text) open.
+2. **Double-submit guard on task creation.** Enter-then-click (or a doubled
+   Enter) could POST the same new task twice; `TaskModal.jsx` now ignores
+   saves while one is in flight.
+3. **Notes app: rename failures are surfaced.** `renamePage` in
+   `notes/frontend/src/App.jsx` swallowed errors (e.g. a 409 filename
+   collision); it now shows the banner and refreshes the tree.
+
+### Features
+
+1. **Enter saves a new task** (`TaskModal.jsx`): Enter in the description
+   field of a new task saves and closes; on an existing task it commits the
+   live edit (blur).
+2. **Today is blue in the reschedule mini-calendar** (`TaskModal.jsx`,
+   `.mini-day.today`); the dark-red selected due date still wins when both.
+3. **First-run tour** (`components/Onboarding.jsx`): four short cards on
+   first open (per-browser, `localStorage` `streak.onboarded.v1`),
+   reopenable via Settings → "Show intro tour".
+4. **Cyberpunk skin** (Settings → "Cyberpunk skin", setting
+   `cyberpunk_skin='1'` so it follows the account): scoped `.app.cyberpunk`
+   overrides — near-black grid ground, signal-red accents, cyan for
+   today/next-task, angular clipped buttons, mono uppercase chrome. The
+   sticky-notes pad deliberately keeps its leather-and-paper look.
+5. **Note-page icon** (`components/NoteIcon.jsx`): a small Notion-style page
+   glyph after the task text on calendar cards and the mobile day list when
+   the task's notes field has non-whitespace content.
+
+Verified: frontend vitest 73/73 passed; both frontends build clean. Backend
+untouched.
+
+## 2026-09-06 pass: drawing input overhaul (Streak Notes)
+
+### Fixes
+
+1. **Palm rejection rebuilt** (`notes/frontend/src/components/DrawingPage.jsx`):
+   the single `gestureRef` meant a palm touching down mid-stroke *replaced* the
+   active pen gesture — the stroke's ink vanished uncommitted and the palm
+   started panning the page. Finger pans now live in their own `panRef`, so a
+   touch can never steal the pen's gesture. A touch is rejected outright (for
+   its whole lifetime) when the pen is down, when the pen was active within
+   600 ms (the pause between characters is when a writing hand shifts), when
+   its contact patch is palm-sized (>34 CSS px), or when it isn't the first
+   touch. A pen-down cancels any palm-started pan — the pen always wins.
+2. **Toolbar no longer "highlights redo" while handwriting**: touch
+   pointer-downs on the stage are now `preventDefault`ed (rejected palms
+   included), so they can't synthesize mouse/click/focus events on the toolbar
+   behind the hand; toolbar buttons prevent default on pointerdown so a tap
+   never leaves one focused (`DrawToolbar.jsx`); the toolbar is
+   `user-select: none` so a stray double-tap can't text-select the ⟳ glyph;
+   and `.tool:hover` only applies under `@media (hover: hover)` so the
+   highlight can't stick on touch (`styles.css`).
+3. **No more Copy / Look Up popping near the title**: with the toolbar
+   unselectable, stray palm double-taps moved up to the next selectable text —
+   the topbar's page title and the rename input. The topbar is now
+   `user-select: none` / `-webkit-touch-callout: none` (chrome, not content),
+   and the drawing page's `.md-title` input applies the same palm test as the
+   canvas on touch pointer-downs (pen recently active, palm-sized patch, or a
+   stroke in flight ⇒ `preventDefault`), so a resting hand can't focus it —
+   a deliberate pencil or fingertip tap still renames.
+
+### Behaviour
+
+1. **Streak Notes opens on the first non-sticky section**
+   (`notes/frontend/src/App.jsx`): the app-owned Sticky Notes section is
+   skipped when picking a default section (on load and after a section
+   delete), unless it's the only section.
+
+Verified: notes frontend vitest 98/98 passed; build clean. Backend and task
+app untouched.

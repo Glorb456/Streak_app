@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { iso, todayIso, DAY_NAMES } from '../dates.js'
 import { dayTint } from '../streaks.js'
 import { useDragOrder } from '../useDragOrder.js'
+import NoteIcon, { hasNotes } from './NoteIcon.jsx'
 
 // Phone-width viewports collapse task cards into colored dots.
 function useCompact() {
@@ -54,7 +55,10 @@ function DayCards({ dayIso, tasks, catById, firstTodayId, onToggleTask, onEditTa
           aria-label="toggle done"
         />
         <div className="task-body">
-          <span className="task-desc">{t.description || '(untitled)'}</span>
+          <span className="task-desc">
+            {t.description || '(untitled)'}
+            {hasNotes(t) && <NoteIcon />}
+          </span>
           {cat && (
             <span className="task-cat" style={{ background: cat.color }}>
               {cat.name}

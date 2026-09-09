@@ -306,6 +306,15 @@ body {
   border-radius: 3px;
   padding: 1px 6px;
 }
+/* Page glyph after the text of a task whose notes have content. Inline-block
+   with a small baseline nudge so it rides the last line of wrapped text. */
+.note-icon {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-left: 5px;
+  opacity: 0.55;
+  flex: none;
+}
 
 /* ---------- drag to reorder ---------- */
 /* The handle is mobile-only. It is display:none here rather than only inside
@@ -536,6 +545,14 @@ body {
 }
 .mini-day:hover { background: rgba(255,255,255,0.08); }
 .mini-day.out { opacity: 0.35; }
+/* Today is always findable while rescheduling. Declared before .selected-day
+   at equal weight, so when today *is* the chosen due date the red wins. */
+.mini-day.today {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: white;
+  font-weight: 700;
+}
 .mini-day.selected-day {
   background: #8e1c1c; /* dark red highlight for the selected due date */
   border-color: #8e1c1c;
@@ -1122,3 +1139,214 @@ body {
   font-family: inherit;
   resize: vertical;
 }
+
+/* ---------- first-run tour ---------- */
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 200; /* above the modal and the sticky pad: the tour explains them */
+}
+.tour-card {
+  background: #232323;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  width: min(440px, 94vw);
+  padding: 26px 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+.tour-icon { font-size: 40px; line-height: 1; }
+.tour-title { font-size: 19px; font-weight: 700; }
+.tour-body { font-size: 14px; line-height: 1.55; color: #bdbdbd; text-align: left; }
+.tour-dots { display: flex; justify-content: center; gap: 6px; padding: 4px 0; }
+.tour-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #4a4a4a;
+}
+.tour-dot.on { background: #2f6fed; }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-actions .spacer { flex: 1; }
+.tour-actions button {
+  background: #2e2e2e;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #ddd;
+  padding: 7px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tour-actions .primary { background: #2f6fed; border-color: #2f6fed; color: white; }
+.tour-actions .tour-skip { background: transparent; border-color: transparent; color: #888; }
+.tour-actions .tour-skip:hover { color: #bbb; }
+
+/* ---------- cyberpunk skin ----------------------------------------------
+   Toggled from settings (cyberpunk_skin = '1'), applied as a class on .app so
+   every override below is scoped and the default look is untouched when off.
+   Palette follows the reference sheet: near-black ground, signal red for
+   every accent that was blue, cyan reserved for "today's next task". The
+   sticky-notes pad keeps its leather-and-paper look on purpose — it is its
+   own object, not part of the chrome. */
+.app.cyberpunk {
+  --cp-bg: #0a0a0f;
+  --cp-panel: #131317;
+  --cp-panel-2: #1b1b21;
+  --cp-red: #e8352c;
+  --cp-red-bright: #ff4b41;
+  --cp-red-dim: #8e1c1c;
+  --cp-border: #3d1216;
+  --cp-line: #2a0f13;
+  --cp-cyan: #00e5ff;
+  --cp-text: #e8e2df;
+  --cp-glow: 0 0 10px rgba(232, 53, 44, 0.35);
+
+  color: var(--cp-text);
+  background:
+    linear-gradient(rgba(232, 53, 44, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 53, 44, 0.035) 1px, transparent 1px),
+    var(--cp-bg);
+  background-size: 42px 42px, 42px 42px, auto;
+}
+
+/* Angular corner cut on the primary controls — the skin's signature shape.
+   Kept off plain bordered buttons, where clipping would eat the border. */
+.cyberpunk .sync-btn,
+.cyberpunk .day-list-add,
+.cyberpunk .panel-save,
+.cyberpunk .modal-actions .primary,
+.cyberpunk .tour-actions .primary {
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+  border-radius: 0;
+}
+
+/* Buttons and labels get the terminal voice. */
+.cyberpunk .sync-btn,
+.cyberpunk .hide-done-btn,
+.cyberpunk .conflicts-btn,
+.cyberpunk .month-nav button,
+.cyberpunk .month-title,
+.cyberpunk .tabs button,
+.cyberpunk .modal-actions button,
+.cyberpunk .day-list-add,
+.cyberpunk .panel-save,
+.cyberpunk .panel-title,
+.cyberpunk .daily-day-label,
+.cyberpunk .weekday,
+.cyberpunk .day-list-header,
+.cyberpunk .tour-title {
+  font-family: 'Consolas', 'SF Mono', 'Menlo', 'Courier New', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.cyberpunk .sync-btn { background: var(--cp-red); }
+.cyberpunk .sync-btn:hover { background: var(--cp-red-bright); }
+.cyberpunk .sync-btn.offline { background: #2a2a2e; color: #77777c; }
+.cyberpunk .hide-done-btn { border-color: var(--cp-border); color: #b9a9a7; }
+.cyberpunk .hide-done-btn:hover { background: rgba(232, 53, 44, 0.12); }
+.cyberpunk .hide-done-btn.on {
+  background: var(--cp-red);
+  border-color: var(--cp-red);
+  color: white;
+  box-shadow: var(--cp-glow);
+}
+.cyberpunk .month-title { color: var(--cp-red-bright); text-shadow: 0 0 12px rgba(232, 53, 44, 0.5); }
+.cyberpunk .month-nav button { border-color: var(--cp-border); color: #b9a9a7; border-radius: 0; }
+.cyberpunk .month-nav button:hover { background: rgba(232, 53, 44, 0.12); }
+
+.cyberpunk .pfp { border-color: var(--cp-red); background: var(--cp-panel); box-shadow: var(--cp-glow); }
+.cyberpunk .streak-badge { background: var(--cp-red); box-shadow: 0 0 8px rgba(232, 53, 44, 0.6); }
+.cyberpunk .dropdown {
+  background: var(--cp-panel);
+  border-color: var(--cp-border);
+  border-radius: 0;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.7), var(--cp-glow);
+}
+.cyberpunk .dropdown button:hover { background: rgba(232, 53, 44, 0.12); }
+.cyberpunk .dropdown button.launch-notes { border-top-color: var(--cp-border); color: var(--cp-cyan); }
+.cyberpunk .dropdown .day-toggle { border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .dropdown .day-toggle.on { background: var(--cp-red); border-color: var(--cp-red); }
+.cyberpunk .panel-row input:not([type='color']) {
+  background: #0d0d11;
+  border-color: var(--cp-border);
+  border-radius: 0;
+}
+.cyberpunk .panel-save { background: var(--cp-red) !important; }
+.cyberpunk .panel-save:disabled { background: #2a2a2e !important; }
+
+.cyberpunk .daily-day-label { border-color: var(--cp-border); border-radius: 0; color: #b9a9a7; }
+.cyberpunk .daily-card { border-radius: 0; clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.cyberpunk .daily-card.done { background: #232327; color: #77777c; }
+.cyberpunk .check-circle.checked { background: var(--cp-red); border-color: var(--cp-red); }
+
+.cyberpunk .calendar {
+  border-color: var(--cp-border);
+  border-radius: 0;
+  background: rgba(10, 10, 15, 0.6);
+  box-shadow: var(--cp-glow);
+}
+.cyberpunk .weekday-row { border-bottom-color: var(--cp-border); }
+.cyberpunk .weekday { color: #9c8a88; }
+.cyberpunk .week-row { border-bottom-color: var(--cp-line); }
+.cyberpunk .day-cell { border-right-color: var(--cp-line); }
+.cyberpunk .day-cell.selected { outline-color: var(--cp-red); border-radius: 0; }
+.cyberpunk .day-num.today { color: var(--cp-red-bright); text-shadow: 0 0 8px rgba(232, 53, 44, 0.6); }
+.cyberpunk .day-num.today::after { background: var(--cp-cyan); box-shadow: 0 0 6px var(--cp-cyan); }
+
+.cyberpunk .task-card {
+  background: var(--cp-panel);
+  border-color: var(--cp-border);
+  border-radius: 0;
+}
+.cyberpunk .task-card.done { background: #202024; }
+.cyberpunk .task-cat { border-radius: 0; }
+.cyberpunk .task-card.first-today,
+.cyberpunk .day-list-item.first-today {
+  background: var(--cp-cyan);
+  color: #002a30;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+}
+
+.cyberpunk .modal-backdrop { background: rgba(5, 5, 8, 0.75); }
+.cyberpunk .modal {
+  background: var(--cp-panel);
+  border-color: var(--cp-red-dim);
+  border-radius: 0;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.8), var(--cp-glow);
+}
+.cyberpunk .desc-input { border-bottom-color: var(--cp-red-dim); }
+.cyberpunk .notes-editor { background: #0d0d11; border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .notes-toolbar { background: #0d0d11; }
+.cyberpunk .notes-check-btn { background: var(--cp-panel-2); border-color: var(--cp-border); color: var(--cp-cyan); border-radius: 0; }
+.cyberpunk .tabs button { border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .tabs button.active { background: var(--cp-panel-2); color: var(--cp-red-bright); }
+.cyberpunk .cat-grid, .cyberpunk .mini-cal { border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .cat-tile { border-radius: 0; }
+.cyberpunk .cat-tile.empty { background: #232327; }
+.cyberpunk .mini-day { border-color: var(--cp-line); border-radius: 0; }
+.cyberpunk .mini-day.today { background: var(--cp-cyan); border-color: var(--cp-cyan); color: #002a30; }
+.cyberpunk .mini-cal-nav button { border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .modal-actions button { border-color: var(--cp-border); background: var(--cp-panel-2); }
+.cyberpunk .modal-actions .primary { background: var(--cp-red); border-color: var(--cp-red); }
+.cyberpunk .modal-actions .danger { background: transparent; border-color: var(--cp-red-dim); color: var(--cp-red-bright); }
+
+.cyberpunk .day-list { border-color: var(--cp-border); border-radius: 0; background: rgba(10, 10, 15, 0.6); }
+.cyberpunk .day-list-header { border-bottom-color: var(--cp-border); }
+.cyberpunk .day-list-add { background: var(--cp-red); }
+.cyberpunk .day-list-item { border-bottom-color: var(--cp-line); }
+.cyberpunk .day-list-item.done { background: #202024; }
+
+.cyberpunk .conflicts-btn { background: var(--cp-red-dim); }
+.cyberpunk .conflicts-modal { background: var(--cp-panel); border-color: var(--cp-red-dim); border-radius: 0; }
+
+.cyberpunk .tour-card { background: var(--cp-panel); border-color: var(--cp-red-dim); border-radius: 0; box-shadow: 0 12px 44px rgba(0, 0, 0, 0.8), var(--cp-glow); }
+.cyberpunk .tour-dot.on { background: var(--cp-red); }
+.cyberpunk .tour-actions .primary { background: var(--cp-red); border-color: var(--cp-red); }

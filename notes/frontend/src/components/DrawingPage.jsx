@@ -17,6 +17,8 @@ const SAVE_DELAY = 900
 const UNDO_LIMIT = 60
 const MAX_DPR = 3      // an iPhone reports 3; above that is all cost, no gain
 const GROW_MARGIN = 240
+const PALM_MS = 600    // touches this soon after pen contact are a resting hand
+const PALM_SIZE = 34   // CSS px; a contact patch this wide is a palm, not a fingertip
 
 const IDLE = { kind: '', text: '' }
 
@@ -41,7 +43,10 @@ export default function DrawingPage({
   // render to see the current state.
   const docRef = useRef(doc)
   const viewRef = useRef({ dpr: 1, scale: 1, scrollY: 0, vw: 0, vh: 0 })
-  const gestureRef = useRef(null)
+  const gestureRef = useRef(null)          // the pen/mouse gesture: draw, erase, lasso, move
+  const panRef = useRef(null)              // a finger pan — separate, so a palm can never steal the pen's gesture
+  const penAtRef = useRef(0)               // when the pen last touched or moved on the stage
+  const rejectedTouches = useRef(new Set())
   const hiddenRef = useRef(new Set())
   const selectionRef = useRef([])
   const toolsRef = useRef(tools)
@@ -360,15 +365,35 @@ export default function DrawingPage({
 
   const onPointerDown = (e) => {
     const stage = stageRef.current
-    // Fingers scroll, the pencil draws — which is also the palm rejection:
-    // a palm arrives as pointerType 'touch' and can only ever pan.
+    // Fingers scroll, the pencil draws. Palm rejection is three checks, all of
+    // which mark the touch rejected for its whole lifetime: a touch while the
+    // pen is down or was down a moment ago (the pause between characters is
+    // exactly when a writing hand shifts), a palm-sized contact patch, and any
+    // touch beyond the first. preventDefault even on rejected touches, so a
+    // palm can never turn into synthesized mouse events, focus, or a click on
+    // the toolbar behind the hand.
     if (e.pointerType === 'touch') {
-      gestureRef.current = {
-        kind: 'pan', id: e.pointerId, startY: e.clientY, startScroll: viewRef.current.scrollY,
+      e.preventDefault()
+      const palmSized = Math.max(e.width || 0, e.height || 0) > PALM_SIZE
+      if (gestureRef.current || panRef.current || palmSized
+          || performance.now() - penAtRef.current < PALM_MS) {
+        rejectedTouches.current.add(e.pointerId)
+        return
       }
-      stage.setPointerCapture(e.pointerId)
+      panRef.current = { id: e.pointerId, startY: e.clientY, startScroll: viewRef.current.scrollY }
+      try { stage.setPointerCapture(e.pointerId) } catch { /* stale pointer */ }
       return
     }
+
+    penAtRef.current = performance.now()
+    // The pen always wins: a palm that landed first and began a pan loses it,
+    // instead of the page scrolling out from under the stroke.
+    if (panRef.current) {
+      try { stage.releasePointerCapture(panRef.current.id) } catch { /* already gone */ }
+      rejectedTouches.current.add(panRef.current.id)
+      panRef.current = null
+    }
+    if (gestureRef.current) return // one drawing gesture at a time
     e.preventDefault()
     stage.setPointerCapture(e.pointerId)
     const p = toPage(e)
@@ -419,13 +444,16 @@ export default function DrawingPage({
   }
 
   const onPointerMove = (e) => {
-    const g = gestureRef.current
-    if (!g || g.id !== e.pointerId) return
+    if (e.pointerType !== 'touch') penAtRef.current = performance.now()
 
-    if (g.kind === 'pan') {
-      setScroll(g.startScroll - (e.clientY - g.startY) / viewRef.current.scale)
+    const pan = panRef.current
+    if (pan && pan.id === e.pointerId) {
+      setScroll(pan.startScroll - (e.clientY - pan.startY) / viewRef.current.scale)
       return
     }
+
+    const g = gestureRef.current
+    if (!g || g.id !== e.pointerId) return
     e.preventDefault()
 
     if (g.kind === 'draw') {
@@ -474,12 +502,20 @@ export default function DrawingPage({
   }
 
   const onPointerUp = (e) => {
+    if (rejectedTouches.current.delete(e.pointerId)) return
+    if (panRef.current?.id === e.pointerId) {
+      panRef.current = null
+      try { stageRef.current.releasePointerCapture(e.pointerId) } catch { /* already gone */ }
+      return
+    }
+
     const g = gestureRef.current
     if (!g || g.id !== e.pointerId) return
+    // Keep the rejection window alive from the lift, not the last move — the
+    // palm shuffles right after a character finishes.
+    if (e.pointerType !== 'touch') penAtRef.current = performance.now()
     gestureRef.current = null
     try { stageRef.current.releasePointerCapture(e.pointerId) } catch { /* already gone */ }
-
-    if (g.kind === 'pan') return
 
     if (g.kind === 'draw') {
       // Simplify once, here. The samples are drawn raw for feel and stored
@@ -589,6 +625,19 @@ export default function DrawingPage({
         onChange={(e) => setTitle(e.target.value)}
         onBlur={saveTitle}
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+        // The title sits right where a writing hand rests. The same palm test
+        // as the canvas: a touch during or just after pen contact, or with a
+        // palm-sized patch, must not focus the input and pop the selection
+        // menu. A deliberate tap — pencil, or a fingertip with the pen away —
+        // still renames.
+        onPointerDown={(e) => {
+          if (e.pointerType !== 'touch') return
+          const palmSized = Math.max(e.width || 0, e.height || 0) > PALM_SIZE
+          if (palmSized || gestureRef.current
+              || performance.now() - penAtRef.current < PALM_MS) {
+            e.preventDefault()
+          }
+        }}
       />
 
       <DrawToolbar

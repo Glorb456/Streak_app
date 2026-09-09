@@ -84,8 +84,17 @@ export default function DrawToolbar({
 
   return (
     // Clicks stop here: the editor collapses the sidebar when its body is
-    // tapped, and reaching for a pencil is not tapping the page.
-    <div className="draw-toolbar" ref={ref} onClick={(e) => e.stopPropagation()}>
+    // tapped, and reaching for a pencil is not tapping the page. Pointer-downs
+    // on the buttons are prevented so a tap never leaves one focused — a
+    // focused button keeps its highlight after the hand moves back to the
+    // page, which reads as the toolbar lighting up on its own. The click
+    // itself still fires; sliders and colour wells are left alone.
+    <div
+      className="draw-toolbar"
+      ref={ref}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => { if (e.target.closest('button')) e.preventDefault() }}
+    >
       <div className="tool-group pencils">
         {tools.pencils.slice(0, PENCIL_COUNT).map((pencil, i) => (
           <button

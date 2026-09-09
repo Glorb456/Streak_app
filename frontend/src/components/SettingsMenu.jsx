@@ -13,7 +13,7 @@ const NOTES_URL = '/notes/'
 // Streak emoji in the top right with the current streak count on top;
 // dropdown offers category colors, daily tasks + colors, background color,
 // and the streak emoji itself.
-export default function SettingsMenu({ categories, dailyTasks, settings, streak, onChanged }) {
+export default function SettingsMenu({ categories, dailyTasks, settings, streak, onChanged, onShowTour }) {
   const [open, setOpen] = useState(false)
   const [panel, setPanel] = useState(null) // 'categories' | 'daily' | 'background' | 'emoji' | 'failover'
   const [emojiDraft, setEmojiDraft] = useState('')
@@ -55,6 +55,7 @@ export default function SettingsMenu({ categories, dailyTasks, settings, streak,
     }))
 
   const emoji = settings.streak_emoji || '🔥'
+  const cyberpunk = settings.cyberpunk_skin === '1'
 
   return (
     <div className="settings" ref={ref}>
@@ -69,6 +70,16 @@ export default function SettingsMenu({ categories, dailyTasks, settings, streak,
           <button onClick={() => setPanel('daily')}>Change daily tasks + colors</button>
           <button onClick={() => setPanel('background')}>Change background color</button>
           <button onClick={() => { setEmojiDraft(emoji); setPanel('emoji') }}>Change streak emoji</button>
+          {/* A setting rather than local state, so the skin follows the account
+              to every device like the background color does. */}
+          <button
+            role="switch"
+            aria-checked={cyberpunk}
+            onClick={() => call(() => api.setSetting('cyberpunk_skin', cyberpunk ? '0' : '1'))}
+          >
+            {cyberpunk ? '◉' : '○'} Cyberpunk skin
+          </button>
+          <button onClick={() => { setOpen(false); onShowTour?.() }}>Show intro tour</button>
           <button
             onClick={() => {
               // The stored value is a JSON array; the editor is one URL per

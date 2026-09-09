@@ -30,10 +30,13 @@ export default function App() {
 
   // Land on something rather than an empty pane: first section, first page.
   // Also repairs the selection after a delete, without needing every handler
-  // to work out what should be selected next.
+  // to work out what should be selected next. The app-owned Sticky Notes
+  // section is skipped as a default — it belongs to the task app's widget,
+  // not to whoever just opened their notebook — unless it is all there is.
   useEffect(() => {
     if (!sections.length) { setActiveSectionId(null); setActivePageId(null); return }
-    const current = sections.find((s) => s.id === activeSectionId) || sections[0]
+    const fallback = sections.find((s) => !s.sticky) || sections[0]
+    const current = sections.find((s) => s.id === activeSectionId) || fallback
     if (current.id !== activeSectionId) setActiveSectionId(current.id)
     if (!current.pages.some((p) => p.id === activePageId)) {
       setActivePageId(current.pages[0]?.id ?? null)
@@ -118,8 +121,15 @@ export default function App() {
   // A rename moves the file, so the id changes with it and the selection has
   // to follow — otherwise the editor would be pointing at a path that is gone.
   const renamePage = async (p, title) => {
-    const updated = await api.updatePage(p.id, { title })
-    if (p.id === activePageId) { setActivePageId(updated.id); setPage(updated) }
+    try {
+      const updated = await api.updatePage(p.id, { title })
+      if (p.id === activePageId) { setActivePageId(updated.id); setPage(updated) }
+      setError('')
+    } catch (e) {
+      // e.g. a 409 when another page already owns that filename — surface it
+      // instead of leaving the sidebar silently out of step with the title.
+      setError(e.message)
+    }
     await refresh()
   }
 

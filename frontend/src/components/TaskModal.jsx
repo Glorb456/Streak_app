@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { iso, monthWeeks, DAY_NAMES, MONTH_NAMES } from '../dates.js'
+import { iso, monthWeeks, todayIso, DAY_NAMES, MONTH_NAMES } from '../dates.js'
 import NotesEditor from './NotesEditor.jsx'
 
 // New-task modal opens on the Category tab; editing an existing task opens
@@ -24,17 +24,27 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
 
   const notesRef = useRef(null)
   const deleting = useRef(false)
+  const saving = useRef(false)
 
   const initial = new Date(dueDate + 'T00:00:00')
   const [calYear, setCalYear] = useState(initial.getFullYear())
   const [calMonth, setCalMonth] = useState(initial.getMonth())
   const weeks = monthWeeks(calYear, calMonth)
 
-  const save = () =>
-    onSave(
-      { description, notes, category_id: categoryId, due_date: dueDate, done },
-      editing
-    )
+  // Guarded so Enter-then-click (or a doubled Enter) can't create the same
+  // task twice while the first POST is still in flight.
+  const save = async () => {
+    if (saving.current) return
+    saving.current = true
+    try {
+      await onSave(
+        { description, notes, category_id: categoryId, due_date: dueDate, done },
+        editing
+      )
+    } finally {
+      saving.current = false
+    }
+  }
 
   // Push the current state (plus the just-changed field, since setState is
   // async) straight to the server when editing an existing task. Skipped once
@@ -101,6 +111,14 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
             autoFocus
             onChange={(e) => setDescription(e.target.value)}
             onBlur={() => applyLive()}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              // New task: Enter is Save-and-close. Existing task: edits are
+              // already live, so Enter just commits via the blur handler.
+              if (editing) e.currentTarget.blur()
+              else save()
+            }}
           />
         </div>
 
@@ -179,6 +197,7 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
                       className={[
                         'mini-day',
                         d.getMonth() !== calMonth ? 'out' : '',
+                        dIso === todayIso() ? 'today' : '',
                         dIso === dueDate ? 'selected-day' : '',
                       ].join(' ')}
                       onMouseDown={keepFocus}

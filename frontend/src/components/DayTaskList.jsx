@@ -1,6 +1,7 @@
 import React from 'react'
 import { todayIso } from '../dates.js'
 import { useDragOrder } from '../useDragOrder.js'
+import NoteIcon, { hasNotes } from './NoteIcon.jsx'
 
 // Mobile-only (shown via CSS below 640px): full-size, scrollable list of the
 // selected day's tasks, since the calendar collapses to dots on phones.
@@ -59,7 +60,10 @@ export default function DayTaskList({
                 onClick={(e) => { e.stopPropagation(); onToggleTask(t) }}
                 aria-label="toggle done"
               />
-              <span className="task-desc">{t.description || '(untitled)'}</span>
+              <span className="task-desc">
+                {t.description || '(untitled)'}
+                {hasNotes(t) && <NoteIcon />}
+              </span>
               {cat && (
                 <span className="task-cat" style={{ background: cat.color }}>
                   {cat.name}

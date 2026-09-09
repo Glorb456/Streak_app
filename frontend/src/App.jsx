@@ -10,6 +10,7 @@ import SettingsMenu from './components/SettingsMenu.jsx'
 import DayTaskList from './components/DayTaskList.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
 import ConflictsModal from './components/ConflictsModal.jsx'
+import Onboarding, { needsOnboarding, markOnboarded } from './components/Onboarding.jsx'
 
 export default function App() {
   const now = new Date()
@@ -35,6 +36,8 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   // Single-clicking a day selects it; the daily bar shows that day's status.
   const [selectedDay, setSelectedDay] = useState(todayIso())
+  // First-run tour; reopenable from the settings menu.
+  const [showTour, setShowTour] = useState(() => needsOnboarding())
 
   const weeks = useMemo(() => monthWeeks(year, month), [year, month])
   const rangeStart = iso(weeks[0][0])
@@ -138,16 +141,22 @@ export default function App() {
   }
 
   const saveTask = async (data, existing) => {
-    if (existing) {
-      const updated = await api.updateTask(existing.id, data)
-      setTasks((ts) => ts.map((t) => (t.id === existing.id ? updated : t)))
-    } else {
-      const created = await api.createTask(data)
-      // Ordered on read, so where this lands in the array doesn't matter —
-      // the server gave it a position below its day's minimum, i.e. the top.
-      setTasks((ts) => [...ts, created])
+    try {
+      if (existing) {
+        const updated = await api.updateTask(existing.id, data)
+        setTasks((ts) => ts.map((t) => (t.id === existing.id ? updated : t)))
+      } else {
+        const created = await api.createTask(data)
+        // Ordered on read, so where this lands in the array doesn't matter —
+        // the server gave it a position below its day's minimum, i.e. the top.
+        setTasks((ts) => [...ts, created])
+      }
+      setModal(null)
+    } catch (e) {
+      // Leave the modal open so the typed task isn't silently lost.
+      alert(`Saving failed: ${e.message}`)
+      syncAll()
     }
-    setModal(null)
   }
 
   const removeTask = async (task) => {
@@ -174,9 +183,13 @@ export default function App() {
     setSelectedDay(todayIso())
   }
 
-  const bg = settings.background_color || '#191919'
+  // Settings values are always strings server-side. The skin is a setting so
+  // it follows the account across devices like everything else.
+  const cyberpunk = settings.cyberpunk_skin === '1'
+  // The skin owns its background (including the grid overlay painted in CSS),
+  // so the user's background color only applies to the default look.
+  const bg = cyberpunk ? '#0a0a0f' : settings.background_color || '#191919'
 
-  // Settings values are always strings server-side.
   const hideDone = settings.hide_completed === '1'
   const editingId = modal?.mode === 'edit' ? modal.task.id : null
   // Filtered once here so the calendar and the mobile day list stay in step,
@@ -233,7 +246,12 @@ export default function App() {
   }, [bg])
 
   return (
-    <div className="app" style={{ background: bg }}>
+    // Inline background only for the default look: the `background` shorthand
+    // would wipe out the cyberpunk skin's CSS grid overlay.
+    <div
+      className={`app ${cyberpunk ? 'cyberpunk' : ''}`}
+      style={cyberpunk ? undefined : { background: bg }}
+    >
       <header className="topbar">
         {/* Grouped so .topbar keeps three flex children and the month nav
             stays centred. */}
@@ -276,6 +294,7 @@ export default function App() {
           settings={settings}
           streak={streak}
           onChanged={syncAll}
+          onShowTour={() => setShowTour(true)}
         />
       </header>
 
@@ -326,6 +345,10 @@ export default function App() {
           onClose={() => setConflictsOpen(false)}
           onChanged={syncAll}
         />
+      )}
+
+      {showTour && (
+        <Onboarding onDone={() => { markOnboarded(); setShowTour(false) }} />
       )}
 
       {modal && (
