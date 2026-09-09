@@ -8,6 +8,10 @@
 // feature lands in the stack (one `git pull` away) rather than needing a new
 // companion release.
 //
+// It runs on Windows (Docker Desktop) and Linux (Docker Engine; built and
+// tested for Ubuntu / Debian / Linux Mint). Everything below is shared; the
+// few platform-specific bits are marked and live in the "platform" section.
+//
 // Logging in happens inside the window exactly like in a browser: the first
 // visit to the Funnel URL bounces through Google, and Electron keeps the
 // oauth2-proxy cookie in its own session. The local stack at localhost:3000
@@ -17,11 +21,20 @@ const {
 } = require('electron')
 const { execFile } = require('child_process')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 // Default only — Settings can point a node at a fork or a different branch.
 const REPO_URL = 'https://github.com/Glorb456/Streak_app.git'
 const LOCAL_URL = 'http://localhost:3000'
+
+const IS_LINUX = process.platform === 'linux'
+const IS_WINDOWS = process.platform === 'win32'
+
+// `--hidden`: bring the stack up and sit in the tray without opening the
+// window. The Linux login autostart entry uses it; handy for a headless-ish
+// backup box that just needs the stack running.
+const START_HIDDEN = process.argv.includes('--hidden')
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json')
 
@@ -33,27 +46,106 @@ function saveConfig(cfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2))
 }
 
+// ------------------------------------------------------------- platform
+
+// Where the stack gets cloned unless Settings says otherwise.
+const defaultRepoDir = () =>
+  IS_WINDOWS ? 'C:\\Streak' : path.join(os.homedir(), 'Streak')
+
+// Linux only: XDG autostart. Windows users get the same effect from Docker
+// Desktop's own "start at sign-in" (the stack has restart: unless-stopped)
+// and the companion's Start Menu shortcut, so this is not offered there.
+const autostartPath = () =>
+  path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+    'autostart', 'streak-companion.desktop')
+
+// The command that relaunches *this* build of the companion: the AppImage
+// itself, the installed binary (.deb), or `electron .` when run from source.
+function launchCommand() {
+  if (process.env.APPIMAGE) return `"${process.env.APPIMAGE}"`
+  if (app.isPackaged) return `"${process.execPath}"`
+  return `"${process.execPath}" "${app.getAppPath()}"`
+}
+
+function getAutostart() {
+  if (!IS_LINUX) return false
+  return fs.existsSync(autostartPath())
+}
+
+function setAutostart(enabled) {
+  if (!IS_LINUX) return false
+  const file = autostartPath()
+  if (!enabled) { try { fs.unlinkSync(file) } catch { } return false }
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Streak Companion',
+    'Comment=Keeps this machine\'s Streak backup running',
+    `Exec=${launchCommand()} --hidden`,
+    'Icon=streak-companion',
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true',
+    '',
+  ].join('\n'))
+  return true
+}
+
 // ------------------------------------------------------------- processes
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
     execFile(cmd, args, { windowsHide: true, ...opts }, (err, stdout, stderr) =>
-      resolve({ ok: !err, code: err ? err.code : 0, stdout, stderr }))
+      resolve({ ok: !err, code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' }))
   })
 }
 
 const dockerCompose = (cfg, args, extra = {}) =>
   run('docker', ['compose', ...args], { cwd: cfg.repoDir, ...extra })
 
+// Beyond "is the binary there": on Linux the usual first-run failures are a
+// stopped daemon, a user who isn't in the `docker` group, or a distro
+// `docker.io` package without the compose v2 plugin. Each gets its own
+// message so Settings can say exactly what to fix.
 async function haveTools() {
-  const docker = await run('docker', ['--version'])
   const git = await run('git', ['--version'])
-  return { docker: docker.ok, git: git.ok }
+  const docker = await run('docker', ['--version'])
+  const out = { git: git.ok, docker: docker.ok, dockerReady: false, dockerProblem: '' }
+  if (!docker.ok) {
+    out.dockerProblem = IS_WINDOWS
+      ? 'not installed — install Docker Desktop'
+      : 'not installed — see the Linux setup steps in the README'
+    return out
+  }
+  const info = await run('docker', ['info', '--format', '{{.ServerVersion}}'])
+  if (!info.ok) {
+    const err = info.stderr
+    if (/permission denied/i.test(err)) {
+      out.dockerProblem = 'permission denied — run `sudo usermod -aG docker $USER`, then log out and back in'
+    } else if (/cannot connect|is the docker daemon running|pipe/i.test(err)) {
+      out.dockerProblem = IS_WINDOWS
+        ? 'Docker Desktop is not running — start it'
+        : 'daemon not running — run `sudo systemctl enable --now docker`'
+    } else {
+      out.dockerProblem = `not reachable: ${err.trim().split('\n')[0]}`
+    }
+    return out
+  }
+  const compose = await run('docker', ['compose', 'version'])
+  if (!compose.ok) {
+    out.dockerProblem = IS_WINDOWS
+      ? 'docker compose is missing — reinstall Docker Desktop'
+      : 'the compose plugin is missing — install docker-compose-plugin (Docker repo) or docker-compose-v2 (Ubuntu 24.04+)'
+    return out
+  }
+  out.dockerReady = true
+  return out
 }
 
 // --------------------------------------------------------------- actions
 
 async function installOrUpdate(cfg, log) {
+  if (!cfg.repoDir) return { ok: false, message: 'Set an install folder first.' }
   const exists = fs.existsSync(path.join(cfg.repoDir, 'docker-compose.yml'))
   if (!exists) {
     log(`Cloning ${cfg.repoUrl} into ${cfg.repoDir}…`)
@@ -107,6 +199,13 @@ async function stackStatus(cfg) {
   return `running (${running.length} containers)`
 }
 
+async function checkForUpdates() {
+  const c = loadConfig()
+  const r = await installOrUpdate(c, () => { })
+  dialog.showMessageBox({ message: r.message })
+  refreshTray()
+}
+
 // ------------------------------------------------------------------ UI
 
 let tray = null
@@ -141,22 +240,21 @@ function openSetup() {
   if (setupWin && !setupWin.isDestroyed()) { setupWin.show(); setupWin.focus(); return }
   setupWin = new BrowserWindow({
     width: 720,
-    height: 820,
+    height: 860,
     title: 'Streak Companion — Settings',
+    icon: path.join(__dirname, 'assets', 'streak.png'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   })
   setupWin.loadFile('setup.html')
 }
 
-async function refreshTray() {
-  if (!tray) return
-  const cfg = loadConfig()
-  const status = await stackStatus(cfg)
-  tray.setToolTip(`Streak Companion — ${status}`)
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `Stack: ${status}`, enabled: false },
-    { type: 'separator' },
+// The same controls as the tray menu. Windows always has a tray; on Linux
+// GNOME hides tray icons unless the AppIndicator extension is on (Ubuntu
+// ships it enabled, stock Debian GNOME doesn't), so the window's menu bar
+// (Alt shows it) is the guaranteed way to reach Settings.
+function controlItems() {
+  return [
     { label: 'Open Streak', click: openApp },
     { label: 'Settings…', click: openSetup },
     { type: 'separator' },
@@ -166,15 +264,7 @@ async function refreshTray() {
         try { await fetch(`${LOCAL_URL}/api/sync/now`, { method: 'POST' }) } catch { }
       },
     },
-    {
-      label: 'Check for updates (git pull + rebuild)',
-      click: async () => {
-        const c = loadConfig()
-        const r = await installOrUpdate(c, () => { })
-        dialog.showMessageBox({ message: r.message })
-        refreshTray()
-      },
-    },
+    { label: 'Check for updates (git pull + rebuild)', click: checkForUpdates },
     { type: 'separator' },
     {
       label: 'Start stack',
@@ -186,13 +276,44 @@ async function refreshTray() {
     },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
+  ]
+}
+
+function installAppMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Companion', submenu: controlItems() },
+    { label: 'View', submenu: [
+      { role: 'reload' }, { role: 'togglefullscreen' }, { type: 'separator' },
+      { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+    ] },
+  ]))
+}
+
+async function refreshTray() {
+  if (!tray) return
+  const cfg = loadConfig()
+  const status = await stackStatus(cfg)
+  tray.setToolTip(`Streak Companion — ${status}`)
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: `Stack: ${status}`, enabled: false },
+    { type: 'separator' },
+    ...controlItems(),
   ]))
 }
 
 // ----------------------------------------------------------------- ipc
 
-ipcMain.handle('config:get', () => ({ ...loadConfig(), defaultRepoUrl: REPO_URL }))
+ipcMain.handle('config:get', () => ({
+  ...loadConfig(),
+  defaultRepoUrl: REPO_URL,
+  defaultRepoDir: defaultRepoDir(),
+  platform: process.platform,
+  autostart: getAutostart(),
+}))
 ipcMain.handle('config:save', (_e, cfg) => { saveConfig({ ...loadConfig(), ...cfg }); return true })
+ipcMain.handle('autostart:set', (_e, enabled) => {
+  try { return { ok: true, enabled: setAutostart(!!enabled) } } catch (err) { return { ok: false, message: String(err) } }
+})
 ipcMain.handle('tools:check', () => haveTools())
 ipcMain.handle('stack:status', () => stackStatus(loadConfig()))
 ipcMain.handle('stack:install', async (e) => {
@@ -224,32 +345,51 @@ ipcMain.handle('pick:dir', async () => {
 
 // -------------------------------------------------------------- startup
 
-app.whenReady().then(async () => {
-  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')))
-  await refreshTray()
-  setInterval(refreshTray, 60_000)
+// One companion per machine: a second launch (Start Menu / app grid / the
+// autostart entry while it's already running) just raises the window instead
+// of adding a second tray icon and a second update timer.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const cfg = loadConfig()
+    if (cfg.installed) openApp(); else openSetup()
+  })
 
-  const cfg = loadConfig()
-  if (!cfg.installed) openSetup()
-  else {
-    // Bring the stack up (no-op if already running) and open the app.
-    dockerCompose(cfg, ['up', '-d']).then(refreshTray)
-    openApp()
-  }
-
-  // Daily auto-update: git pull + rebuild, only when it actually changed.
-  setInterval(async () => {
-    const c = loadConfig()
-    if (!c.installed || c.autoUpdate === false) return
-    await run('git', ['fetch'], { cwd: c.repoDir })
-    const behind = await run('git', ['rev-list', '--count', 'HEAD..@{u}'], { cwd: c.repoDir })
-    if (behind.ok && parseInt(behind.stdout.trim(), 10) > 0) {
-      await installOrUpdate(c, () => { })
-      refreshTray()
+  app.whenReady().then(async () => {
+    installAppMenu()
+    // Tray creation can fail on a bare Linux session with no status-notifier
+    // host; the app menu covers that, so don't let it take the app down.
+    try {
+      tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')))
+      await refreshTray()
+      setInterval(refreshTray, 60_000)
+    } catch (err) {
+      console.error('tray unavailable:', err)
     }
-  }, 24 * 3600 * 1000)
-})
+
+    const cfg = loadConfig()
+    if (!cfg.installed) openSetup()
+    else {
+      // Bring the stack up (no-op if already running) and open the app.
+      dockerCompose(cfg, ['up', '-d']).then(refreshTray)
+      if (!START_HIDDEN) openApp()
+    }
+
+    // Daily auto-update: git pull + rebuild, only when it actually changed.
+    setInterval(async () => {
+      const c = loadConfig()
+      if (!c.installed || c.autoUpdate === false) return
+      await run('git', ['fetch'], { cwd: c.repoDir })
+      const behind = await run('git', ['rev-list', '--count', 'HEAD..@{u}'], { cwd: c.repoDir })
+      if (behind.ok && parseInt(behind.stdout.trim(), 10) > 0) {
+        await installOrUpdate(c, () => { })
+        refreshTray()
+      }
+    }, 24 * 3600 * 1000)
+  })
+}
 
 // Tray app: closing windows must not quit; the stack keeps serving other
 // devices (that is the whole point of a backup node).
-app.on('window-all-closed', (e) => e.preventDefault?.())
+app.on('window-all-closed', (e) => e?.preventDefault?.())

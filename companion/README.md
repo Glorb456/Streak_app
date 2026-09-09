@@ -1,27 +1,31 @@
-# Streak Companion (Windows)
+# Streak Companion (Windows & Linux)
 
-A native Windows app that is both a **client** and a **backup** for Streak.
+A native desktop app that is both a **client** and a **backup** for Streak.
 Day to day it looks exactly like the web app in its own window. Underneath, it
 runs a full copy of the Streak stack on this machine and keeps it in sync with
 your host, so if your home wifi or power dies, this machine — and every phone
 or browser pointed at the failover chain — keeps working, and everything
 merges back when the host returns.
 
+It ships for **Windows 10/11** (installer + portable `.exe`) and **Linux**
+(`.deb` for Ubuntu / Debian / Linux Mint, plus an AppImage for anything else).
+The two builds are the same code; only the Docker install differs.
+
 ## What you need
 
-- **Windows 10/11**
+Both platforms need three things: **Docker** (the stack runs in it), **Git**
+(installs and updates come straight from GitHub) and
+**[Tailscale](https://tailscale.com/download)** logged into the same tailnet
+as your host (needed for syncing from outside your LAN, and for serving web
+clients via Funnel).
+
+### Windows
+
 - **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (free
-  for personal use) — the stack runs in it. See the answers to its installer
-  questions below.
-- **[Git for Windows](https://git-scm.com/download/win)** — installs and
-  updates come straight from GitHub
-- **[Tailscale](https://tailscale.com/download)** logged into the same
-  tailnet as your host (needed for syncing from outside your LAN, and for
-  serving web clients via Funnel)
+  for personal use). See the answers to its installer questions below.
+- **[Git for Windows](https://git-scm.com/download/win)**
 
-### Installing Docker Desktop
-
-The installer asks three things. For Streak:
+The Docker Desktop installer asks three things. For Streak:
 
 | Question | Answer | Why |
 | --- | --- | --- |
@@ -44,45 +48,111 @@ after a power cut** — otherwise it's offline exactly when you need it:
 3. In the BIOS/UEFI, set power restore behaviour to **power on** (often
    "Restore on AC Power Loss").
 
-## Getting the app
+### Linux (Ubuntu / Debian / Linux Mint)
 
-**From a GitHub Release** — download `Streak Companion Setup <version>.exe`
-from this repo's **Releases** page and run it. If Releases is empty, no
-version has been tagged yet; use either option below.
-
-**Build it from GitHub without a Windows machine** — the repo has a workflow
-that builds the installer on GitHub's own Windows runners. Go to the repo's
-**Actions** tab → **Build Streak Companion (Windows)** → **Run workflow**.
-When it finishes, download the `streak-companion-windows` artifact from that
-run; the `.exe` is inside. To turn that into a proper Release instead, push a
-tag:
+Use **Docker Engine** from Docker's own apt repository — not Docker Desktop
+for Linux, and not the Snap. Engine is a plain system service: it starts at
+boot before anyone logs in, and every Streak container is `restart:
+unless-stopped`, so a backup node comes back from a power cut on its own
+with no auto-login tricks. The recipe below works unchanged on Ubuntu,
+Debian and Mint (Mint has no repo of its own; it uses the Ubuntu one for the
+release it is based on, which is what the `UBUNTU_CODENAME` line handles —
+LMDE falls through to Debian's):
 
 ```bash
-git tag companion-v1.0.0 && git push origin companion-v1.0.0
+sudo apt update && sudo apt install -y ca-certificates curl git
+sudo install -m 0755 -d /etc/apt/keyrings
+. /etc/os-release
+if [ -n "$UBUNTU_CODENAME" ]; then DIST=ubuntu; CODENAME=$UBUNTU_CODENAME
+else DIST=debian; CODENAME=${DEBIAN_CODENAME:-$VERSION_CODENAME}; fi
+sudo curl -fsSL "https://download.docker.com/linux/$DIST/gpg" -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$DIST $CODENAME stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"     # lets the companion talk to Docker without sudo
 ```
 
-**Run it from source** — on the Windows machine itself, with
-[Node.js 20+](https://nodejs.org/):
+**Log out and back in** after the last line (group changes only apply to
+new sessions), then check with `docker compose version` — it should print a
+`v2.x` version. Ubuntu 24.04+ / Mint 22+ also work with the distro packages
+(`sudo apt install docker.io docker-compose-v2 git`), but older releases
+ship compose v1 (`docker-compose` with a hyphen), which the companion does
+not use.
+
+Tailscale: `curl -fsSL https://tailscale.com/install.sh | sh` then
+`sudo tailscale up`. To serve web clients from this node later:
+`sudo tailscale funnel --bg 3000`.
+
+For a machine that is supposed to be the backup, the one BIOS/UEFI setting
+that matters is still power restore → **power on**. Nothing else is needed:
+Docker brings the stack up at boot, and the companion (tray icon, daily
+update check) can be added to your login autostart from its Settings.
+
+## Getting the app
+
+**From a GitHub Release** — download from this repo's **Releases** page:
+
+| Platform | File | Install |
+| --- | --- | --- |
+| Windows | `Streak Companion Setup <version>.exe` | run it (or use the portable `.exe` without installing) |
+| Ubuntu / Debian / Mint | `streak-companion-<version>-amd64.deb` | `sudo apt install ./streak-companion-<version>-amd64.deb` — then find **Streak Companion** in the app menu, or run `streak-companion` |
+| Other Linux | `streak-companion-<version>-x86_64.AppImage` | `chmod +x` and run it (see *Linux notes* for the Ubuntu 24.04 sandbox caveat) |
+
+If Releases is empty, no version has been tagged yet; use either option below.
+
+**Build it on GitHub without a Windows or Linux machine** — the repo has a
+workflow that builds every installer on GitHub's own runners. Go to the repo's
+**Actions** tab → **Build Streak Companion** → **Run workflow**. When it
+finishes, download the `streak-companion-windows` or
+`streak-companion-linux` artifact from that run. To turn that into a proper
+Release instead, push a tag:
+
+```bash
+git tag companion-v1.1.0 && git push origin companion-v1.1.0
+```
+
+**Run it from source** — with [Node.js 20+](https://nodejs.org/) on the
+machine itself:
 
 ```powershell
+# Windows
 git clone https://github.com/Glorb456/Streak_app.git C:\Streak
 cd C:\Streak\companion
 npm install
-npm start          # runs the companion
-npm run dist       # or: build the installer here, output in dist\
+npm start            # runs the companion
+npm run dist:win     # or: build the installer here, output in dist\
 ```
+
+```bash
+# Linux
+git clone https://github.com/Glorb456/Streak_app.git ~/Streak
+cd ~/Streak/companion
+npm install
+npm start            # runs the companion
+npm run dist:linux   # or: build the .deb + AppImage here, output in dist/
+```
+
+(Point the companion's *Install folder* at that same clone if you run from
+source; it will just `git pull` in place.)
 
 ## Set it up
 
 1. Launch the companion. The Settings window opens on first launch:
    - **Role**: `Backup` (the usual choice — your main machine is the host).
    - **Repository URL**: pre-filled with this repo; change it only for a fork.
-   - **Install folder**: e.g. `C:\Streak`.
+   - **Install folder**: pre-filled with `C:\Streak` on Windows and
+     `~/Streak` on Linux.
    - **Sync token**: the same `SYNC_TOKEN` your host uses (see the main
      README's *Backups & buddy backup* section — one `openssl rand -hex 32`
      secret shared by all of your machines).
    - **Host URL**: the host's Tailscale IP + port, e.g. `http://100.x.y.z:3000`
      (best — works even when the host's Funnel is down), or its Funnel URL.
+   - Linux only: **Start the companion when I log in** adds an entry under
+     `~/.config/autostart` that launches it into the tray with `--hidden`.
+   The status line at the top tells you if Docker isn't usable yet and what
+   to do about it (not installed, daemon stopped, not in the `docker` group,
+   compose plugin missing).
 2. Click **Install / Update & Start**. First build takes a few minutes.
 3. Click **Open Streak** — you're looking at the local copy, which is already
    pulling everything (tasks *and* notes) from the host and syncing every
@@ -115,6 +185,34 @@ companion does that for you:
 - automatically once a day, and
 - on demand: tray icon → **Check for updates (git pull + rebuild)**.
 
+## Linux notes
+
+- **Tray icon.** Cinnamon, MATE, XFCE and KDE show it out of the box. GNOME
+  needs the AppIndicator extension: Ubuntu ships it enabled, stock Debian
+  GNOME does not (`sudo apt install gnome-shell-extension-appindicator`,
+  then enable it). Without a tray, everything is still reachable from the
+  **Companion** menu in the app window — press **Alt** to reveal the menu bar
+  — and launching the companion again from the app grid just raises the
+  existing window (it's single-instance).
+- **Closing the window** leaves the companion running in the tray and the
+  stack serving other devices, exactly like on Windows. **Quit** is in the
+  tray/Companion menu. Stopping the companion does *not* stop the stack —
+  Docker keeps it up; use **Stop stack** if you really want it down.
+- **AppImage on Ubuntu 24.04+.** Ubuntu restricts unprivileged user
+  namespaces, which breaks Chromium's sandbox inside AppImages ("The SUID
+  sandbox helper binary was found, but is not configured correctly"). Prefer
+  the `.deb` — its install step sets up the sandbox helper correctly. If you
+  must use the AppImage, run it with `--no-sandbox`.
+- **Where things live.** Config: `~/.config/streak-companion/config.json`.
+  The stack: whatever *Install folder* you chose (`~/Streak` by default), a
+  normal git checkout with a normal `.env` — `docker compose` commands there
+  work the same as on any hand-managed node. Autostart entry:
+  `~/.config/autostart/streak-companion.desktop`. Package files:
+  `/opt/Streak Companion/` with a `streak-companion` launcher on `PATH`.
+- **Docker "permission denied".** You're not in the `docker` group yet, or
+  haven't logged out since being added. `sudo usermod -aG docker $USER`, log
+  out and back in, and re-open the companion's Settings to re-check.
+
 ## Hosting a buddy's backup (buddy mirror)
 
 You can host a mirror of a friend's Streak — and they can host yours. The
@@ -128,8 +226,8 @@ As the person **hosting** a buddy's mirror:
    sync token, their host URL, their OAuth client) and `mirror-emails.txt`
    (their email allowlist). Paste both into the **Buddy mirror** section of
    the companion's Settings and click **Install / Update mirror**.
-2. Expose it: `tailscale funnel --bg --https=8443 3100` (the mirror serves on
-   port 3100; 8443 keeps your own Funnel URLs free).
+2. Expose it: `tailscale funnel --bg --https=8443 3100` (`sudo` on Linux; the
+   mirror serves on port 3100; 8443 keeps your own Funnel URLs free).
 3. Tell your buddy the resulting URL — they add it as the *last* entry of
    their failover chain, and to their Google OAuth client's redirect URIs
    (as `https://…:8443/oauth2/callback`).
@@ -153,10 +251,11 @@ launches the stack, and everything else ships through `git pull`. When it
 does change:
 
 ```bash
-git tag companion-v1.1.0 && git push origin companion-v1.1.0
+git tag companion-v1.2.0 && git push origin companion-v1.2.0
 ```
 
-GitHub builds the installer and publishes it to Releases (see
+GitHub builds the Windows installer and the Linux `.deb` + AppImage and
+publishes all of them to one Release (see
 `.github/workflows/companion-release.yml`). Bump `version` in
 `companion/package.json` to match the tag first — that number ends up in the
-installer's filename and in Add/Remove Programs.
+installers' filenames, in Add/Remove Programs and in `dpkg -l`.

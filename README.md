@@ -153,10 +153,11 @@ web clients try, in order, and stop at the first one that answers:
   badge appears in the top bar — a bare-bones list where either version can
   be kept or restored.
 
-- **Windows machines** run all of this through the native
-  [Streak Companion](companion/README.md) app: installs the stack from
-  GitHub, keeps it updated (`git pull` + rebuild, daily or on demand), shows
-  the app in its own window, and sets up buddy mirrors by pasting two files.
+- **Windows and Linux machines** (Ubuntu / Debian / Mint) run all of this
+  through the native [Streak Companion](companion/README.md) app: installs
+  the stack from GitHub, keeps it updated (`git pull` + rebuild, daily or on
+  demand), shows the app in its own window, and sets up buddy mirrors by
+  pasting two files. Ships as a Windows installer and a `.deb` / AppImage.
 
 - **Buddy backup.** A friend hosts a mirror of your Streak (and you can host
   theirs): a fully separate stack (`docker-compose.mirror.yml`) on their
@@ -180,8 +181,8 @@ add each machine's Funnel URL to the failover chain in Settings.
 
 - `projects` table + `tasks.project_id` already exist for grouping multiple
   tasks under one category/project.
-- All state lives behind the JSON API, so native Windows/iOS/iPadOS/Linux
-  apps can reuse the backend unchanged.
+- All state lives behind the JSON API, so native apps can reuse the backend
+  unchanged — the Windows/Linux companion already does; iOS/iPadOS could too.
 
 ## Dev without Docker
 

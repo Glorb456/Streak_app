@@ -612,3 +612,61 @@ untouched.
 
 Verified: notes frontend vitest 98/98 passed; build clean. Backend and task
 app untouched.
+
+## 2026-09-08 pass: Linux companion (Ubuntu / Debian / Mint)
+
+### Companion (`companion/`)
+
+1. **Cross-platform main process** (`main.js`): the Windows-only assumptions
+   are gone. Install-folder default is `C:\Streak` on Windows and `~/Streak`
+   elsewhere; the settings page reads it from `config:get` instead of
+   hardcoding. The Docker check now runs `docker info` + `docker compose
+   version` and reports *why* Docker isn't usable — not installed, daemon
+   stopped, user not in the `docker` group (the classic Linux first-run
+   failure), or compose v2 plugin missing — with the exact command to fix
+   it, per platform.
+2. **Reachable without a tray.** GNOME hides tray icons unless the
+   AppIndicator extension is on (Ubuntu ships it; stock Debian GNOME doesn't),
+   so the app window now has a **Companion** menu bar (hidden until Alt) with
+   the same items as the tray menu, tray creation is wrapped in try/catch, and
+   the app is single-instance (`requestSingleInstanceLock`): relaunching from
+   the app grid raises the existing window instead of adding a second tray
+   icon and update timer. The tray and menu share one `controlItems()` list.
+3. **Linux login autostart**: a Settings checkbox (Linux only) writes/removes
+   `~/.config/autostart/streak-companion.desktop`, launching the companion
+   with the new `--hidden` flag (stack up + tray, no window). `Exec` points
+   at the AppImage, the installed binary or `electron .` depending on how
+   it's running. Not offered on Windows, where Docker Desktop's own
+   start-at-sign-in covers it.
+4. **Packaging** (`package.json`): `dist:linux` builds a `.deb` (Ubuntu /
+   Debian / Mint — the targets this is built for) and an AppImage.
+   `build/icons/` holds a 16–512 px hicolor set generated from
+   `build/icon.png`; `build/linux-after-install.sh` is electron-builder's
+   stock postinst plus a fix for Ubuntu 24.04+ / Mint 22+: their AppArmor
+   restriction on unprivileged user namespaces breaks Chromium's namespace
+   sandbox, and the stock script's `unshare` probe runs as root so it never
+   notices — when `apparmor_restrict_unprivileged_userns=1` the setuid
+   `chrome-sandbox` is used instead. `.deb` recommends `git`. Version bumped
+   to 1.1.0; `homepage` added (fpm refuses to build a deb without one).
+5. **GitHub workflow** (`companion-release.yml`, now "Build Streak
+   Companion"): a `linux` job on ubuntu-latest beside the Windows one, both
+   uploading run artifacts (`streak-companion-windows`,
+   `streak-companion-linux`); a `release` job gathers both into a single
+   GitHub Release on `companion-v*` tags.
+6. **Docs**: `companion/README.md` rewritten for both platforms — a Linux
+   requirements section with a Docker-Engine-from-Docker's-apt-repo recipe
+   that works unchanged on Ubuntu, Debian and Mint (Mint has no repo of its
+   own; the script maps it to its Ubuntu base via `UBUNTU_CODENAME`, LMDE to
+   Debian), the `docker` group step, Tailscale, why no auto-login trick is
+   needed on Linux (Docker Engine starts at boot; every container is
+   `restart: unless-stopped`), per-platform download/install table, source
+   build commands, and a *Linux notes* section (GNOME tray, AppImage sandbox
+   on 24.04, file locations, permission-denied fix). Main README's
+   backups section now says Windows *and* Linux.
+
+Verified: `.deb` + AppImage built with electron-builder 25.1.8 / Electron
+33.4.11 in a `node:20` container (host has no node); deb inspected — control
+metadata, 7 icon sizes, postinst with the AppArmor fallback, desktop entry;
+packaged binary booted under Xvfb. Not tested on a real Ubuntu 24.04 desktop
+session (this machine is 22.04, kernel 5.15) — the AppArmor path is from the
+documented Chromium/Electron behaviour there, not observed.

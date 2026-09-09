@@ -47,6 +47,8 @@ Two parallel app stacks, one origin:
 
 `frontend/nginx.conf` is the single router; oauth2-proxy fronts it. `/api/notes/` deliberately sits under `/api` so oauth2-proxy's `--api-route=^/api` returns 401s (not login-page HTML) to both clients. The only unauthenticated routes are `/api/sync/peer/*`, guarded by pre-shared `X-Sync-Token`.
 
+`companion/` is a thin Electron shell (Windows installer + Linux .deb/AppImage) that clones this repo, runs `docker compose` for it and shows the app in a window — no app logic lives there; see `companion/README.md`. Its packages are built by `.github/workflows/companion-release.yml`, not locally (no node on the host).
+
 ### Backend conventions (task app)
 
 - **Every SQL statement is its own file**: `backend/app/sql/queries/<name>.sql`, loaded by `db.sql("name")`; `sql/init/*.sql` run in order at startup (idempotent). Exception: the sync engine (`sync.py`) generates its statements from the `SYNCED_TABLES` registry so a new column can't be forgotten in one of many files — a new synced column must be added to that registry.

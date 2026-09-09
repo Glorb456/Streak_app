@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('companion', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   saveConfig: (cfg) => ipcRenderer.invoke('config:save', cfg),
+  setAutostart: (enabled) => ipcRenderer.invoke('autostart:set', enabled),
   checkTools: () => ipcRenderer.invoke('tools:check'),
   stackStatus: () => ipcRenderer.invoke('stack:status'),
   install: () => ipcRenderer.invoke('stack:install'),

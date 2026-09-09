@@ -14,22 +14,26 @@
       flex: 1; background: #232323; color: #e6e6e6; border: 1px solid #3a3a3a;
       border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit;
     }
-    textarea { min-height: 90px; font-family: Consolas, monospace; }
+    textarea { min-height: 90px; font-family: Consolas, "DejaVu Sans Mono", monospace; }
     button {
       background: #2f6fed; color: white; border: none; border-radius: 6px;
       padding: 8px 14px; font-size: 13px; cursor: pointer;
     }
     button.plain { background: transparent; color: #bbb; border: 1px solid #3a3a3a; }
     button:disabled { background: #555; cursor: not-allowed; }
-    #tools { font-size: 13px; }
+    #tools { font-size: 13px; line-height: 1.6; }
     #tools .bad { color: #e0553e; }
     #tools .good { color: #3fb56b; }
+    #tools code { background: #111; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
     #log {
       background: #111; border: 1px solid #333; border-radius: 6px; padding: 10px;
-      font-family: Consolas, monospace; font-size: 12px; min-height: 70px;
+      font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; min-height: 70px;
       max-height: 180px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px;
     }
     .hint { font-size: 12px; color: #8a8a8a; }
+    .row.check label { width: auto; }
+    .row.check input { margin: 0 6px 0 0; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -45,10 +49,18 @@
     </select>
   </div>
   <div class="row"><label>Repository URL</label><input type="text" id="repoUrl" placeholder="https://github.com/you/streak.git" /></div>
-  <div class="row"><label>Install folder</label><input type="text" id="repoDir" placeholder="C:\Streak" /><button class="plain" id="pick">Browse…</button></div>
+  <div class="row"><label>Install folder</label><input type="text" id="repoDir" /><button class="plain" id="pick">Browse…</button></div>
   <div class="row"><label>Sync token</label><input type="password" id="token" placeholder="shared secret, same on all your nodes" /></div>
   <div class="row" id="upstreamRow"><label>Host URL (upstream)</label><input type="text" id="upstream" placeholder="http://100.x.y.z:3000 (host's Tailscale IP) or its Funnel URL" /></div>
   <div class="row"><label>This machine's Funnel callback</label><input type="text" id="redirectUrl" placeholder="https://this-pc.tailXXXX.ts.net/oauth2/callback (optional until you Funnel this node)" /></div>
+  <div class="row check" id="autostartRow" hidden>
+    <label><input type="checkbox" id="autostart" />Start the companion when I log in (tray only; the stack comes up, no window)</label>
+  </div>
+  <p class="hint" id="autostartHint" hidden>
+    Docker itself starts at boot on Linux, so the stack restarts on its own after a
+    power cut even before anyone logs in — this only adds the tray icon and the daily
+    update check.
+  </p>
   <p class="hint">
     The token must match the host's SYNC_TOKEN. For web-client failover, add this
     machine's Funnel URL to the chain under Settings → Backups &amp; failover inside Streak.
@@ -76,24 +88,47 @@
   <script>
     const $ = (id) => document.getElementById(id)
     const log = (m) => { $('log').textContent += m + '\n'; $('log').scrollTop = 1e9 }
+    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+    // Turn `backticked` fragments in a tool message into <code> for readability.
+    const codeify = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>')
     window.companion.onLog(log)
+
+    let platform = 'win32'
 
     async function refresh() {
       const t = await window.companion.checkTools()
+      const dockerName = platform === 'win32' ? 'Docker Desktop' : 'Docker'
+      const dockerMissing = platform === 'win32'
+        ? 'MISSING — install from docker.com/products/docker-desktop'
+        : 'MISSING — see the Linux setup steps in the README'
+      const gitMissing = platform === 'win32'
+        ? 'MISSING — install from git-scm.com'
+        : 'MISSING — <code>sudo apt install git</code>'
+      let dockerLine
+      if (!t.docker) dockerLine = `<span class="bad">${dockerMissing}</span>`
+      else if (t.dockerReady) dockerLine = '<span class="good">ready</span>'
+      else dockerLine = `<span class="bad">${codeify(t.dockerProblem)}</span>`
       $('tools').innerHTML =
-        `Docker Desktop: <span class="${t.docker ? 'good' : 'bad'}">${t.docker ? 'found' : 'MISSING — install from docker.com/products/docker-desktop'}</span> · ` +
-        `Git: <span class="${t.git ? 'good' : 'bad'}">${t.git ? 'found' : 'MISSING — install from git-scm.com'}</span>`
+        `${dockerName}: ${dockerLine}<br>` +
+        `Git: <span class="${t.git ? 'good' : 'bad'}">${t.git ? 'found' : gitMissing}</span>`
       $('status').textContent = await window.companion.stackStatus()
     }
 
     async function init() {
       const cfg = await window.companion.getConfig()
+      platform = cfg.platform || 'win32'
       $('role').value = cfg.role || 'backup'
       $('repoUrl').value = cfg.repoUrl || cfg.defaultRepoUrl || ''
-      $('repoDir').value = cfg.repoDir || 'C:\\Streak'
+      $('repoDir').value = cfg.repoDir || cfg.defaultRepoDir || ''
+      $('repoDir').placeholder = cfg.defaultRepoDir || ''
       $('token').value = cfg.token || ''
       $('upstream').value = cfg.upstream || ''
       $('redirectUrl').value = cfg.redirectUrl || ''
+      if (platform === 'linux') {
+        $('autostartRow').hidden = false
+        $('autostartHint').hidden = false
+        $('autostart').checked = !!cfg.autostart
+      }
       onRole()
       refresh()
     }
@@ -117,6 +152,11 @@
     $('pick').addEventListener('click', async () => {
       const dir = await window.companion.pickDir()
       if (dir) $('repoDir').value = dir
+    })
+    $('autostart').addEventListener('change', async (e) => {
+      const r = await window.companion.setAutostart(e.target.checked)
+      if (!r.ok) { log(`Could not change autostart: ${r.message}`); e.target.checked = !e.target.checked }
+      else log(r.enabled ? 'Autostart entry written to ~/.config/autostart.' : 'Autostart entry removed.')
     })
     $('install').addEventListener('click', async () => {
       await save()

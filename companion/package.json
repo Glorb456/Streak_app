@@ -1,13 +1,19 @@
 {
   "name": "streak-companion",
-  "version": "1.0.0",
-  "description": "Windows companion for Streak: runs a local backup (or host, or buddy mirror) of the Streak stack and wraps it in a native window.",
+  "version": "1.1.0",
+  "description": "Windows + Linux companion for Streak: runs a local backup (or host, or buddy mirror) of the Streak stack and wraps it in a native window.",
   "main": "main.js",
-  "author": "streak",
+  "homepage": "https://github.com/Glorb456/Streak_app",
+  "author": {
+    "name": "streak",
+    "email": "streak@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -32,6 +38,30 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "icon": "build/icons",
+      "description": "Runs a local Streak backup and shows the app in its own window",
+      "executableName": "streak-companion",
+      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "category": "Utility",
+      "synopsis": "Local backup node + native window for Streak",
+      "desktop": {
+        "Name": "Streak Companion",
+        "Keywords": "streak;tasks;calendar;notes;backup;"
+      }
+    },
+    "deb": {
+      "packageName": "streak-companion",
+      "maintainer": "streak <streak@users.noreply.github.com>",
+      "afterInstall": "build/linux-after-install.sh",
+      "fpm": [
+        "--deb-recommends", "git"
+      ]
     }
   }
 }
