@@ -1,17 +1,168 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { iso, monthWeeks, todayIso, DAY_NAMES, MONTH_NAMES } from '../dates.js'
 import NotesEditor from './NotesEditor.jsx'
 
-// New-task modal opens on the Category tab; editing an existing task opens
-// on the Calendar tab with the task's current day highlighted dark red.
-// Edits to an existing task apply immediately (Notion-style) — date/category/
-// done on click, description/notes on blur and on close.
+// Buttons inside the modal must not let their own mousedown move focus: in the
+// narrow layout the resulting notes collapse reflows the button out from under
+// the pointer and the click never fires, and in the wide layout, where the
+// pickers sit beside live notes, blurring would fire an applyLive() PUT
+// immediately followed by the button's own — the same save, twice.
+const keepFocus = (e) => e.preventDefault()
+
+const prettyDate = (dIso) => {
+  const d = new Date(dIso + 'T00:00:00')
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+const SelectIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="1.5" y="3.5" width="13" height="4" rx="2" stroke="currentColor" />
+    <rect x="1.5" y="9.5" width="9" height="4" rx="2" stroke="currentColor" />
+  </svg>
+)
+
+const DateIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="1.5" y="2.5" width="13" height="12" rx="2" stroke="currentColor" />
+    <path d="M1.5 6.5h13M5 1.5v2M11 1.5v2" stroke="currentColor" />
+  </svg>
+)
+
+// Notion's select property: the value reads as a coloured chip and clicking it
+// drops a searchable list underneath. The menu owns its own outside-click
+// handling and swallows that mousedown, so the first click off the menu closes
+// the menu only — the backdrop behind it does not also close the modal.
+function CategorySelect({ categories, value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef(null)
+  const menuRef = useRef(null)
+  const triggerRef = useRef(null)
+
+  const selected = categories.find((c) => c.id === value) || null
+  const q = query.trim().toLowerCase()
+  const shown = q ? categories.filter((c) => c.name.toLowerCase().includes(q)) : categories
+
+  const dismiss = () => {
+    setOpen(false)
+    setQuery('')
+    triggerRef.current?.focus()
+  }
+  const pick = (id) => {
+    dismiss()
+    onChange(id)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => {
+      if (rootRef.current?.contains(e.target)) return
+      e.stopPropagation()
+      setOpen(false)
+      setQuery('')
+    }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      dismiss()
+    }
+    // Capture phase: React's own listeners sit on the app root, below document,
+    // so stopping here keeps the click from reaching the backdrop.
+    document.addEventListener('mousedown', onDown, true)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown, true)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  // The menu is absolutely positioned inside a column that can scroll; nudge
+  // that column when it opens clipped. A fully visible menu moves nothing.
+  useEffect(() => {
+    if (!open) return
+    const id = requestAnimationFrame(() =>
+      menuRef.current?.scrollIntoView({ block: 'nearest' })
+    )
+    return () => cancelAnimationFrame(id)
+  }, [open])
+
+  return (
+    <div className="prop-value" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`prop-select ${open ? 'open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onMouseDown={keepFocus}
+        onClick={() => (open ? dismiss() : setOpen(true))}
+      >
+        {selected ? (
+          <span className="cat-chip" style={{ background: selected.color }}>{selected.name}</span>
+        ) : (
+          <span className="prop-empty">Empty</span>
+        )}
+        <span className="prop-caret">▾</span>
+      </button>
+
+      {open && (
+        <div className="prop-menu" ref={menuRef}>
+          <div className="prop-menu-search">
+            <input
+              autoFocus
+              value={query}
+              placeholder="Search for a category…"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                if (shown.length) pick(shown[0].id)
+              }}
+            />
+          </div>
+          <div className="prop-menu-label">Select a category</div>
+          <div className="prop-menu-list">
+            {shown.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="prop-menu-item"
+                onMouseDown={keepFocus}
+                onClick={() => pick(value === c.id ? null : c.id)}
+              >
+                <span className="cat-chip" style={{ background: c.color }}>{c.name}</span>
+                {value === c.id && <span className="prop-menu-check">✓</span>}
+              </button>
+            ))}
+            {!shown.length && (
+              <div className="prop-menu-empty">
+                {categories.length ? 'No categories match' : 'No categories yet — add them in settings'}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="prop-menu-clear"
+            onMouseDown={keepFocus}
+            onClick={() => pick(null)}
+          >
+            Clear category
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// New-task and edit-task modal, laid out the way a Notion page is: a big
+// left-aligned title, then the properties (category as a dropdown, deadline),
+// then the note body. Edits to an existing task apply immediately — date/
+// category/done on click, description/notes on blur and on close.
 //
-// Wide screens put the notes and the category/calendar pickers side by side,
-// so both pickers are always visible and focusing the notes changes nothing but
-// the caret. Narrow screens fall back to one column with a tab row, where
-// focusing the notes expands them over the tab panel. Either way the backdrop
-// dismisses in two stages, notes first and the modal second.
+// Wide screens put the notes and the property/calendar column side by side.
+// Narrow screens fall back to one column, where focusing the notes expands them
+// over the properties and the calendar. Either way the backdrop dismisses in
+// two stages, notes first and the modal second.
 export default function TaskModal({ modal, categories, onSave, onLive, onDelete, onClose }) {
   const editing = modal.mode === 'edit' ? modal.task : null
   const [description, setDescription] = useState(editing?.description ?? '')
@@ -19,7 +170,6 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? null)
   const [dueDate, setDueDate] = useState(editing?.due_date ?? modal.date)
   const [done, setDone] = useState(editing?.done ?? false)
-  const [tab, setTab] = useState(editing ? 'calendar' : 'category')
   const [notesExpanded, setNotesExpanded] = useState(false)
 
   const notesRef = useRef(null)
@@ -67,20 +217,6 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
   // document.activeElement is already authoritative.
   const notesHasFocus = () =>
     !!notesRef.current && notesRef.current.contains(document.activeElement)
-  const blurNotes = () => { if (notesHasFocus()) document.activeElement.blur() }
-
-  // Buttons below the notes must not let their own mousedown collapse the
-  // notes: the resulting reflow moves them out from under the pointer and the
-  // click never fires. Suppressing the focus shift keeps the layout still.
-  // The picker buttons carry it too. They are unreachable while the notes are
-  // focused in the narrow layout, but in the wide one they sit beside live
-  // notes, where blurring would fire an applyLive() PUT immediately followed by
-  // the button's own — the same save, twice.
-  const keepFocus = (e) => e.preventDefault()
-
-  // Category squares padded to a full grid of equal-size tiles.
-  const tiles = [...categories]
-  while (tiles.length < 8 || tiles.length % 4 !== 0) tiles.push(null)
 
   return (
     <div
@@ -106,7 +242,7 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
           />
           <input
             className="desc-input"
-            placeholder="Description"
+            placeholder="Untitled"
             value={description}
             autoFocus
             onChange={(e) => setDescription(e.target.value)}
@@ -122,8 +258,8 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
           />
         </div>
 
-        {/* Two columns on wide screens (notes left, both pickers right) and
-            one flat column below that — the wrappers dissolve via
+        {/* Two columns on wide screens (notes left, properties and calendar
+            right) and one flat column below that — the wrappers dissolve via
             display:contents, see the note in styles.css. */}
         <div className="modal-body">
           <div className="modal-notes">
@@ -137,51 +273,23 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
             />
           </div>
 
-          {/* Both pickers stay mounted and `tab` only marks which one the
-              narrow layout reveals, because the wide layout shows both at once
-              and drops the tab row in CSS — so the tab state has to survive a
-              resize in either direction. */}
           <div className="modal-picker">
-            <div className="tabs">
-              <button
-                className={tab === 'calendar' ? 'active' : ''}
-                onMouseDown={keepFocus}
-                onClick={() => { blurNotes(); setTab('calendar') }}
-              >
-                Calendar
-              </button>
-              <button
-                className={tab === 'category' ? 'active' : ''}
-                onMouseDown={keepFocus}
-                onClick={() => { blurNotes(); setTab('category') }}
-              >
-                Category
-              </button>
+            <div className="modal-props">
+              <div className="prop-row">
+                <span className="prop-label"><SelectIcon />Category</span>
+                <CategorySelect
+                  categories={categories}
+                  value={categoryId}
+                  onChange={(next) => { setCategoryId(next); applyLive({ category_id: next }) }}
+                />
+              </div>
+              <div className="prop-row">
+                <span className="prop-label"><DateIcon />Deadline</span>
+                <span className="prop-static">{prettyDate(dueDate)}</span>
+              </div>
             </div>
 
-            <div className={`cat-grid ${tab === 'category' ? 'shown' : ''}`}>
-              {tiles.map((c, i) =>
-                c ? (
-                  <button
-                    key={c.id}
-                    className={`cat-tile ${categoryId === c.id ? 'selected' : ''}`}
-                    style={{ background: c.color }}
-                    onMouseDown={keepFocus}
-                    onClick={() => {
-                      const next = categoryId === c.id ? null : c.id
-                      setCategoryId(next)
-                      applyLive({ category_id: next })
-                    }}
-                  >
-                    {c.name}
-                  </button>
-                ) : (
-                  <div key={`empty-${i}`} className="cat-tile empty" />
-                )
-              )}
-            </div>
-
-            <div className={`mini-cal ${tab === 'calendar' ? 'shown' : ''}`}>
+            <div className="mini-cal">
               <div className="mini-cal-nav">
                 <button onMouseDown={keepFocus} onClick={() => { const d = new Date(calYear, calMonth - 1, 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }}>‹</button>
                 <span>{MONTH_NAMES[calMonth]} {calYear}</span>

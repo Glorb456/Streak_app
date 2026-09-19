@@ -14,6 +14,9 @@
 // server serves; the cache only ever answers when the network cannot.
 
 const CACHE = 'streak-shell-v1'
+// Dropped in the cache when a navigation is answered from it, so the page can
+// tell the user it is looking at an offline copy (see src/shellcache.js).
+const MARK = '/__served-from-cache'
 
 self.addEventListener('install', () => self.skipWaiting())
 
@@ -43,13 +46,26 @@ async function networkFirst(req) {
     return res
   } catch (err) {
     const hit = await cache.match(req)
-    if (hit) return hit
+    if (hit) {
+      if (req.mode === 'navigate') await mark(cache)
+      return hit
+    }
     if (req.mode === 'navigate') {
       // Any navigation falls back to the cached shell; the SPA and
       // failover.js take it from there.
       const shell = await cache.match('/')
-      if (shell) return shell
+      if (shell) {
+        await mark(cache)
+        return shell
+      }
     }
     throw err
   }
+}
+
+// Timestamped rather than a bare flag: the page only trusts a mark left in
+// the seconds before its own boot, so one left behind by an offline visit
+// yesterday can't mislabel a healthy load today.
+function mark(cache) {
+  return cache.put(MARK, new Response(String(Date.now()))).catch(() => {})
 }

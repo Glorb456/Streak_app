@@ -29,17 +29,18 @@ body {
   background: #2f6fed;
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 6px 0 0 6px; /* the status caret takes the right half */
   padding: 7px 14px;
   font-size: 14px;
   cursor: pointer;
 }
-.sync-btn:hover { background: #2559c4; }
-.sync-btn.offline {
-  background: #555;
-  color: #9a9a9a;
-  cursor: not-allowed;
-}
+.sync-btn:hover:not(:disabled), .sync-caret:hover { filter: brightness(1.15); }
+/* One tone per connection state, on both halves, so the topbar shows the
+   trouble before the panel is ever opened. See syncstate.js. */
+.sync-btn.tone-warn, .sync-caret.tone-warn { background: #a86b12; }
+.sync-btn.tone-down, .sync-caret.tone-down { background: #a33a33; }
+.sync-btn.tone-offline, .sync-caret.tone-offline { background: #555; color: #9a9a9a; }
+.sync-btn.tone-offline { cursor: not-allowed; }
 
 .topbar-left { display: flex; align-items: center; gap: 8px; }
 
@@ -176,6 +177,102 @@ body {
 }
 .dropdown .day-toggle:hover { background: rgba(255,255,255,0.08); }
 .dropdown .day-toggle.on { background: #2f6fed; border-color: #2f6fed; color: white; }
+
+/* ---------- sync status menu ---------- */
+/* Deliberately after `.dropdown button`: these tie with it on specificity and
+   win on source order, so the panel's buttons keep their own shapes. */
+.sync-group { position: relative; display: flex; align-items: stretch; }
+.sync-caret {
+  background: #2f6fed;
+  color: white;
+  border: none;
+  border-left: 1px solid rgba(255,255,255,0.28);
+  border-radius: 0 6px 6px 0;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sync-panel {
+  left: 0;
+  right: auto;
+  top: 40px;
+  min-width: 290px;
+  max-width: min(340px, 88vw);
+  padding: 12px;
+  gap: 12px;
+  cursor: default;
+}
+.sync-head { display: flex; align-items: flex-start; gap: 9px; }
+.sync-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex: none; background: #4caf50; }
+.sync-dot.tone-ok { background: #4caf50; box-shadow: 0 0 7px rgba(76,175,80,0.55); }
+.sync-dot.tone-warn { background: #e0a021; }
+.sync-dot.tone-down { background: #e05a4f; }
+.sync-dot.tone-offline { background: #777; }
+.sync-title { font-size: 14px; font-weight: 600; color: #eee; }
+.sync-detail { font-size: 12px; color: #999; line-height: 1.4; margin-top: 3px; }
+.sync-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid #3a3a3a;
+  padding-top: 9px;
+}
+.sync-row { display: flex; align-items: baseline; gap: 12px; font-size: 12px; color: #8f8f8f; }
+.sync-row b {
+  margin-left: auto;
+  color: #ddd;
+  font-weight: 500;
+  text-align: right;
+  min-width: 0;
+  word-break: break-word;
+}
+.sync-row.bad b { color: #e57373; }
+.sync-note { font-size: 12px; color: #8f8f8f; }
+.sync-panel .sync-conflicts {
+  margin-top: 6px;
+  background: transparent;
+  border: 1px solid #7a2c2c;
+  border-radius: 5px;
+  color: #e57373;
+  font-size: 12px;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.sync-panel .sync-conflicts:hover { background: rgba(229,115,115,0.12); }
+.sync-panel .sync-update {
+  background: #2f6fed;
+  border: none;
+  border-radius: 5px;
+  color: white;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.sync-panel .sync-update:hover { filter: brightness(1.15); }
+.sync-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #3a3a3a;
+  padding-top: 9px;
+}
+.sync-build { font-size: 11px; color: #777; }
+.sync-panel .sync-now {
+  margin-left: auto;
+  background: #2e2e2e;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  color: #ddd;
+  font-size: 12px;
+  padding: 5px 12px;
+  text-align: center;
+  cursor: pointer;
+}
+.sync-panel .sync-now:hover { background: #3a3a3a; }
+.sync-panel .sync-now:disabled { color: #777; cursor: not-allowed; }
 
 /* ---------- daily task bar ---------- */
 .daily-bar {
@@ -379,28 +476,38 @@ body {
   gap: 12px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.6);
 }
-/* The wide layout below needs wrappers around the notes and around the two
-   pickers. Narrow screens want neither: `display: contents` drops the wrappers
-   out of the box tree entirely, so .modal is once again the direct flex parent
-   of .notes-editor, .tabs and the panels — which the focus-expansion sizing and
-   the 12px modal gap both depend on. Restored to real boxes at >=820px. */
+/* The wide layout below needs wrappers around the notes and around the
+   properties/calendar column. Narrow screens want neither: `display: contents`
+   drops the wrappers out of the box tree entirely, so .modal is once again the
+   direct flex parent of .notes-editor, .modal-props and .mini-cal — which the
+   focus-expansion sizing and the 12px modal gap both depend on. Restored to
+   real boxes at >=820px. */
 .modal-body, .modal-notes, .modal-picker { display: contents; }
 
-/* Both panels are always mounted so the tab state survives a resize; off the
-   wide layout, `shown` is what the tab row switches. */
-.cat-grid:not(.shown), .mini-cal:not(.shown) { display: none; }
-
-.modal-header { display: flex; align-items: center; gap: 10px; }
+/* Notion-style page title: big, bold and left-aligned, with the underline kept
+   for the focused state only so the resting modal reads as a document. */
+.modal-header { display: flex; align-items: center; gap: 12px; }
+/* Sized up next to the big title. :not(.checked) so the rule can raise the
+   unchecked ring off the dark panel without stealing the done state's green. */
+.modal-header .check-circle { width: 22px; height: 22px; min-width: 22px; }
+.modal-header .check-circle:not(.checked) { border-color: #6a6a6a; }
 .desc-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
-  border-bottom: 1px solid #3a3a3a;
+  border-bottom: 1px solid transparent;
   color: #eee;
-  font-size: 18px;
-  padding: 6px 2px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-align: left;
+  padding: 4px 2px;
   outline: none;
 }
+.desc-input::placeholder { color: #5b5b5b; font-weight: 700; }
+.desc-input:focus { border-bottom-color: #3a3a3a; }
 .notes-editor {
   background: #1a1a1a;
   border: 1px solid #3a3a3a;
@@ -427,7 +534,7 @@ body {
   max-height: none;
   flex: 0 1 auto; /* size to content, but yield when the modal hits max-height */
 }
-.modal.notes-expanded .cat-grid,
+.modal.notes-expanded .modal-props,
 .modal.notes-expanded .mini-cal { display: none; }
 .notes-toolbar {
   display: flex;
@@ -472,45 +579,128 @@ body {
   color: #777;
 }
 
-.tabs { display: flex; gap: 4px; }
-.tabs button {
+/* ---------- task properties (Notion-style rows) ---------- */
+.modal-props { display: flex; flex-direction: column; gap: 2px; }
+.prop-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.prop-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 104px;
+  color: #8a8a8a;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.prop-label svg { flex: none; opacity: 0.75; }
+/* Anchor for the dropdown, which is positioned against this row rather than
+   the modal so it follows the trigger in both layouts. */
+.prop-value { position: relative; flex: 1 1 auto; min-width: 0; }
+.prop-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
   background: transparent;
-  border: 1px solid #3a3a3a;
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  color: #999;
-  padding: 6px 14px;
-  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #ddd;
+  font-family: inherit;
   font-size: 13px;
+  text-align: left;
+  padding: 5px 8px;
+  cursor: pointer;
 }
-.tabs button.active { color: white; background: #2e2e2e; }
-
-.cat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  border: 1px solid #3a3a3a;
-  border-radius: 0 6px 6px 6px;
-  padding: 12px;
-}
-.cat-tile {
-  aspect-ratio: 1 / 1;
-  border: 2px solid transparent;
-  border-radius: 6px;
+.prop-select:hover, .prop-select.open { background: rgba(255,255,255,0.07); }
+.prop-empty { color: #6e6e6e; }
+.prop-caret { margin-left: auto; color: #7a7a7a; font-size: 10px; }
+.prop-static { color: #ddd; font-size: 13px; padding: 5px 8px; }
+.cat-chip {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 4px;
   color: white;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-  word-break: break-word;
-  padding: 4px;
+  padding: 2px 8px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
-.cat-tile.selected { border-color: white; }
-.cat-tile.empty { background: #6e6e6e; cursor: default; }
+
+/* The dropdown itself. Its height is capped and the option list scrolls, so a
+   long category list can't outgrow the column it hangs in. */
+.prop-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max(100%, 250px);
+  max-width: min(320px, 86vw);
+  background: #2b2b2b;
+  border: 1px solid #3f3f3f;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 10;
+}
+.prop-menu-search { padding: 8px; border-bottom: 1px solid #3a3a3a; }
+.prop-menu-search input {
+  width: 100%;
+  background: #1f1f1f;
+  border: 1px solid #3f3f3f;
+  border-radius: 5px;
+  color: #eee;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+.prop-menu-label { font-size: 11px; color: #808080; padding: 8px 12px 4px; }
+.prop-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 208px;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+.prop-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.prop-menu-item:hover { background: rgba(255,255,255,0.08); }
+.prop-menu-check { margin-left: auto; color: #9a9a9a; font-size: 12px; }
+.prop-menu-empty { color: #777; font-size: 12px; padding: 6px; }
+.prop-menu-clear {
+  background: transparent;
+  border: none;
+  border-top: 1px solid #3a3a3a;
+  color: #9a9a9a;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.prop-menu-clear:hover { background: rgba(255,255,255,0.06); color: #ddd; }
 
 .mini-cal {
   border: 1px solid #3a3a3a;
-  border-radius: 0 6px 6px 6px;
+  border-radius: 6px;
   padding: 12px;
 }
 .mini-cal-nav {
@@ -704,11 +894,13 @@ body {
   input:not([type='color']),
   textarea,
   select,
-  .desc-input,
   .notes-line textarea,
   .panel-row input:not([type='color']) {
     font-size: 16px;
   }
+  /* The title clears the floor several times over; it needs a rule here only
+     to out-specify the blanket `input` selector above. */
+  .modal-header .desc-input { font-size: 26px; }
 }
 
 /* ---------- wide modal: notes beside the pickers ---------- */
@@ -758,10 +950,7 @@ body {
     max-height: none;
   }
 
-  /* No tabs: both panels are on screen at once, and nothing hides them. */
-  .modal-picker .tabs { display: none; }
-  .modal .modal-picker .cat-grid { display: grid; border-radius: 6px; }
-  .modal .modal-picker .mini-cal { display: block; border-radius: 6px; }
+  .modal-header .desc-input { font-size: 30px; }
 }
 
 /* ---------- the task at the top of today ---------- */
@@ -1218,7 +1407,6 @@ body {
 
 /* Angular corner cut on the primary controls — the skin's signature shape.
    Kept off plain bordered buttons, where clipping would eat the border. */
-.cyberpunk .sync-btn,
 .cyberpunk .day-list-add,
 .cyberpunk .panel-save,
 .cyberpunk .modal-actions .primary,
@@ -1233,7 +1421,8 @@ body {
 .cyberpunk .conflicts-btn,
 .cyberpunk .month-nav button,
 .cyberpunk .month-title,
-.cyberpunk .tabs button,
+.cyberpunk .prop-label,
+.cyberpunk .prop-menu-label,
 .cyberpunk .modal-actions button,
 .cyberpunk .day-list-add,
 .cyberpunk .panel-save,
@@ -1247,9 +1436,29 @@ body {
   letter-spacing: 0.07em;
 }
 
-.cyberpunk .sync-btn { background: var(--cp-red); }
-.cyberpunk .sync-btn:hover { background: var(--cp-red-bright); }
-.cyberpunk .sync-btn.offline { background: #2a2a2e; color: #77777c; }
+.cyberpunk .sync-btn, .cyberpunk .sync-caret { background: var(--cp-red); }
+.cyberpunk .sync-btn.tone-warn, .cyberpunk .sync-caret.tone-warn { background: #8a5a10; }
+.cyberpunk .sync-btn.tone-down, .cyberpunk .sync-caret.tone-down { background: var(--cp-red-dim); }
+.cyberpunk .sync-btn.tone-offline, .cyberpunk .sync-caret.tone-offline { background: #2a2a2e; color: #77777c; }
+.cyberpunk .sync-caret { border-left-color: rgba(0,0,0,0.35); border-radius: 0; }
+/* The signature corner cut spans the pair: top-left off the button, bottom-
+   right off the caret, nothing off the seam between them. */
+.cyberpunk .sync-btn {
+  border-radius: 0;
+  clip-path: polygon(9px 0, 100% 0, 100% 100%, 0 100%, 0 9px);
+}
+.cyberpunk .sync-caret {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
+}
+.cyberpunk .sync-title, .cyberpunk .sync-build {
+  font-family: 'Consolas', 'SF Mono', 'Menlo', 'Courier New', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.cyberpunk .sync-rows, .cyberpunk .sync-foot { border-top-color: var(--cp-border); }
+.cyberpunk .sync-panel .sync-now { background: var(--cp-panel-2); border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .sync-panel .sync-update { background: var(--cp-red); border-radius: 0; }
+.cyberpunk .sync-panel .sync-conflicts { border-color: var(--cp-red-dim); border-radius: 0; }
 .cyberpunk .hide-done-btn { border-color: var(--cp-border); color: #b9a9a7; }
 .cyberpunk .hide-done-btn:hover { background: rgba(232, 53, 44, 0.12); }
 .cyberpunk .hide-done-btn.on {
@@ -1322,15 +1531,24 @@ body {
   border-radius: 0;
   box-shadow: 0 12px 44px rgba(0, 0, 0, 0.8), var(--cp-glow);
 }
-.cyberpunk .desc-input { border-bottom-color: var(--cp-red-dim); }
+.cyberpunk .desc-input:focus { border-bottom-color: var(--cp-red-dim); }
 .cyberpunk .notes-editor { background: #0d0d11; border-color: var(--cp-border); border-radius: 0; }
 .cyberpunk .notes-toolbar { background: #0d0d11; }
 .cyberpunk .notes-check-btn { background: var(--cp-panel-2); border-color: var(--cp-border); color: var(--cp-cyan); border-radius: 0; }
-.cyberpunk .tabs button { border-color: var(--cp-border); border-radius: 0; }
-.cyberpunk .tabs button.active { background: var(--cp-panel-2); color: var(--cp-red-bright); }
-.cyberpunk .cat-grid, .cyberpunk .mini-cal { border-color: var(--cp-border); border-radius: 0; }
-.cyberpunk .cat-tile { border-radius: 0; }
-.cyberpunk .cat-tile.empty { background: #232327; }
+.cyberpunk .mini-cal { border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .cat-chip { border-radius: 0; }
+.cyberpunk .prop-select:hover, .cyberpunk .prop-select.open { background: rgba(232, 53, 44, 0.12); }
+.cyberpunk .prop-menu {
+  background: var(--cp-panel);
+  border-color: var(--cp-border);
+  border-radius: 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), var(--cp-glow);
+}
+.cyberpunk .prop-menu-search { border-bottom-color: var(--cp-border); }
+.cyberpunk .prop-menu-search input { background: #0d0d11; border-color: var(--cp-border); border-radius: 0; }
+.cyberpunk .prop-menu-item { border-radius: 0; }
+.cyberpunk .prop-menu-item:hover, .cyberpunk .prop-menu-clear:hover { background: rgba(232, 53, 44, 0.12); }
+.cyberpunk .prop-menu-clear { border-top-color: var(--cp-border); }
 .cyberpunk .mini-day { border-color: var(--cp-line); border-radius: 0; }
 .cyberpunk .mini-day.today { background: var(--cp-cyan); border-color: var(--cp-cyan); color: #002a30; }
 .cyberpunk .mini-cal-nav button { border-color: var(--cp-border); border-radius: 0; }

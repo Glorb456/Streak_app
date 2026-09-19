@@ -670,3 +670,87 @@ metadata, 7 icon sizes, postinst with the AppArmor fallback, desktop entry;
 packaged binary booted under Xvfb. Not tested on a real Ubuntu 24.04 desktop
 session (this machine is 22.04, kernel 5.15) — the AppArmor path is from the
 documented Chromium/Electron behaviour there, not observed.
+
+---
+
+## 2026-09-19 pass: Notion-style task modal
+
+The open-task modal kept its shape — title row, notes, picker column, action
+row — but the two pieces that read least like a document were rebuilt.
+
+1. **Title** (`.desc-input`): 26 px / 30 px on wide screens, bold, still
+   left-aligned (not centred), placeholder now "Untitled". The underline is
+   `transparent` until the field is focused, so a resting modal reads as a
+   page rather than a form. The iOS 16 px focus-zoom guard had `.desc-input`
+   in its blanket 16 px list, which would now *shrink* the title on touch
+   devices; it was pulled out and given `.modal-header .desc-input { 26px }`
+   in the same block, specific enough to beat the bare `input` selector. The
+   header check circle grew to 22 px to sit beside the bigger type
+   (`:not(.checked)` on the ring colour so the done state keeps its green).
+2. **Category is a dropdown** (`CategorySelect` in `TaskModal.jsx`): the 4×n
+   grid of square colour tiles is gone. The category and the deadline are now
+   Notion property rows — icon + label on the left, value on the right — and
+   the category value is a chip that opens a searchable menu (filter field,
+   "Select a category", coloured option chips with a ✓ on the current one, and
+   a "Clear category" footer). Enter picks the first match.
+   The menu closes on an outside mousedown **in the capture phase, with
+   `stopPropagation()`**: React's listeners sit on the app root, below
+   `document`, so the same click can't also reach the backdrop and close the
+   whole modal. Escape closes it and returns focus to the trigger. On open it
+   calls `scrollIntoView({ block: 'nearest' })`, which does nothing unless the
+   surrounding column clipped it.
+3. **Tabs removed**: with the category down to one row there is nothing to tab
+   between, so the properties and the mini calendar are both always on screen
+   in either layout, and the `tab` state, `.tabs`, `.cat-grid`, `.cat-tile`
+   and the `:not(.shown)` hiding rule went with them. Expanded notes now hide
+   `.modal-props` + `.mini-cal` (was `.cat-grid` + `.mini-cal`). The cyberpunk
+   skin follows: square menu, monospace uppercase property labels, red hover,
+   and its `.desc-input` underline moved to `:focus`.
+
+Verified: `npm run build` and the 73 frontend unit tests pass in
+`node:20-alpine`; the modal was rendered from the real stylesheet in headless
+Firefox at 1200 px and 420 px, menu open and closed, plain and cyberpunk.
+
+---
+
+## 2026-09-19 pass: sync status menu
+
+Prompted by a change that "didn't show up": the live containers had been
+running the 2026-09-06 frontend image for thirteen days, and nothing in the
+app could say so. The sync button now carries the answer.
+
+1. **Split control** (`SyncMenu.jsx`): the Sync button still syncs on click;
+   a caret beside it opens a status panel. Both halves are tinted by the
+   connection state, so the topbar shows trouble before the panel is opened.
+2. **State machine** (`syncstate.js`, tested in `syncstate.test.js`):
+   `offline` → `cached` → `stale`/`down` → `connecting` → `ok`, worst first.
+   `cached` — "Cached by browser, unable to connect" — is the one that needed
+   new plumbing: `public/sw.js` now drops a timestamped `/__served-from-cache`
+   marker in its shell cache whenever it answers a *navigation* from that
+   cache, and `shellcache.js` reads the marker once at boot and consumes it,
+   so it can only ever describe the current page load. `App.jsx` tracks
+   `lastSyncAt` / `syncError` off the existing 5 s poll to drive the rest.
+3. **Panel contents**: state headline and explanation, last update, whether
+   the page came from the server or the browser cache, auto-refresh state,
+   last error; then the peer-sync block for a node with a `SYNC_ROLE` (role,
+   upstream host, upstream reachability, last peer sync, last peer error) or
+   "single node — peer sync is off"; a shortcut into the ⚠ conflict resolver;
+   the build stamp; and `Sync now`, which also pokes `POST /sync/now` on a
+   node that has a sync role.
+4. **Build stamp + update check**: `vite.config.js` defines `__BUILD_ID__`
+   (build timestamp), shown in the panel footer. While the panel is open it
+   fetches `/` with `cache: 'no-store'` and compares the hashed entry bundle
+   named there with the one this tab is running (`import.meta.url`); a
+   mismatch offers "The server has a newer build than this tab — reload",
+   which deletes the shell cache and reloads. That is exactly the state this
+   pass started from, now visible from inside the app.
+
+Also corrected in `CLAUDE.md`: the live deployment does **not** run from a
+different checkout. Its compose labels point at this directory; the project
+is just named `streak_app`. Source edits are invisible until
+`docker compose up -d --build frontend`.
+
+Verified: 88 frontend unit tests pass (15 new); the panel was rendered from
+the real stylesheet in headless Firefox in both the healthy and the
+cached-and-offline state; the rebuilt container serves the new bundle, the
+new `sw.js` and a build stamp matching the image.

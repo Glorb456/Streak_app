@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js'
 import { failoverOnError, rememberFailover } from './failover.js'
+import { servedFromCache } from './shellcache.js'
 import { iso, monthWeeks, todayIso, MONTH_NAMES } from './dates.js'
 import { applyVisibleOrder, firstTaskIdOn, orderTasks, tasksOn } from './tasks.js'
 import DailyBar from './components/DailyBar.jsx'
@@ -8,6 +9,7 @@ import Calendar from './components/Calendar.jsx'
 import TaskModal from './components/TaskModal.jsx'
 import SettingsMenu from './components/SettingsMenu.jsx'
 import DayTaskList from './components/DayTaskList.jsx'
+import SyncMenu from './components/SyncMenu.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
 import ConflictsModal from './components/ConflictsModal.jsx'
 import Onboarding, { needsOnboarding, markOnboarded } from './components/Onboarding.jsx'
@@ -26,6 +28,11 @@ export default function App() {
 
   const [online, setOnline] = useState(navigator.onLine)
   const [syncing, setSyncing] = useState(false)
+  // What the sync menu reports: when data last landed, why it stopped, and
+  // whether this page was served by the service worker instead of the server.
+  const [lastSyncAt, setLastSyncAt] = useState(null)
+  const [syncError, setSyncError] = useState(null)
+  const [fromCache, setFromCache] = useState(false)
   // Multi-node sync bookkeeping: unresolved-conflict count for the badge,
   // and whether the resolver modal is open.
   const [syncInfo, setSyncInfo] = useState(null)
@@ -65,11 +72,14 @@ export default function App() {
       setCompletions(comps)
       setStreak(stk.streak)
       setSyncInfo(sst)
+      setLastSyncAt(Date.now())
+      setSyncError(null)
       // Cache the failover chain while the server is reachable — the moment
       // it's needed is exactly the moment this server can't hand it over.
       rememberFailover(sett)
     } catch (e) {
       console.error('sync failed', e)
+      setSyncError(e?.message || 'request failed')
       // The server may be gone, not just this request: walk the failover
       // chain (throttled; no-op when it's the network that's down).
       failoverOnError()
@@ -80,6 +90,9 @@ export default function App() {
 
   // Initial load + reload when the visible month changes.
   useEffect(() => { syncAll() }, [syncAll])
+
+  // Asked once, at boot: the answer describes this page load and nothing else.
+  useEffect(() => { servedFromCache().then(setFromCache) }, [])
 
   // Auto refresh every 5 seconds unless offline. Paused while a task popup
   // is open so a refresh can't race with (and briefly revert) live edits.
@@ -256,14 +269,17 @@ export default function App() {
         {/* Grouped so .topbar keeps three flex children and the month nav
             stays centred. */}
         <div className="topbar-left">
-          <button
-            className={`sync-btn ${online ? '' : 'offline'}`}
-            onClick={syncAll}
-            disabled={!online}
-            title={online ? 'Sync now' : 'Offline'}
-          >
-            {syncing ? '…' : '⟳'} <span className="label">Sync</span>
-          </button>
+          <SyncMenu
+            online={online}
+            syncing={syncing}
+            lastSyncAt={lastSyncAt}
+            syncError={syncError}
+            fromCache={fromCache}
+            syncInfo={syncInfo}
+            conflicts={syncInfo?.conflicts || 0}
+            onSyncNow={syncAll}
+            onOpenConflicts={() => setConflictsOpen(true)}
+          />
           <button
             className={`hide-done-btn ${hideDone ? 'on' : ''}`}
             onClick={toggleHideDone}

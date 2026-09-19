@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Streak: a self-hosted task calendar with daily-habit streak tracking, plus **Streak Notes**, a second independent OneNote-style app living in `notes/`. Everything runs in Docker behind one nginx + oauth2-proxy (one Google login covers both apps). It's a personal homelab project; most code is AI-generated and changes are logged in `EDITS.md` — append a dated section there after a significant pass.
 
-Note: the live deployment on this machine runs from a **different checkout** (containers prefixed `streak_app`). Don't restart or rebuild those from this repo.
+Note: the live deployment on this machine runs **from this checkout** — compose project `streak_app` (pinned by `name:` in `docker-compose.yml`), working dir `/home/siddhant/Documents/homelab/streak-github`. So editing the source changes nothing a browser can see until the image is rebuilt: `docker compose up -d --build frontend` (it recreates the backends it depends on too). Confirm with the user before rebuilding — it briefly takes the live app down — and remember that a running tab keeps its old bundle until reloaded; the sync menu's build stamp says which one it has.
 
 ## Commands
 
