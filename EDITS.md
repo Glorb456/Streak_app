@@ -754,3 +754,352 @@ Verified: 88 frontend unit tests pass (15 new); the panel was rendered from
 the real stylesheet in headless Firefox in both the healthy and the
 cached-and-offline state; the rebuilt container serves the new bundle, the
 new `sw.js` and a build stamp matching the image.
+
+## 2026-09-23 pass: CLAUDE.md swept against the code
+
+Documentation only — no app code changed. Every claim in `CLAUDE.md` was
+checked against the source, and the gaps a later agent would trip over were
+filled in.
+
+**Corrections**
+
+1. **"Everything runs behind one nginx + oauth2-proxy" was misleading.**
+   `frontend` publishes `3000:80` on every interface and that path bypasses
+   oauth2-proxy entirely; oauth2-proxy binds `127.0.0.1:4180` and only fronts
+   the Tailscale Funnel path. Now stated explicitly as two access paths, one
+   authenticated.
+2. **"The only unauthenticated routes are `/api/sync/peer/*`" was wrong.**
+   oauth2-proxy also skips `/api/notes/sync/`, `manifest.webmanifest`,
+   `/icons/`, `favicon.ico` and `apple-touch-icon.png`.
+3. **Frontend test description was incomplete** — `syncstate.test.js` was
+   missing, and the notes frontend's own 98-test suite (markdown parser plus
+   the whole drawing engine) was not mentioned at all, only its build.
+4. **The `npm install` caveat for `notes/frontend` is stale**: both
+   `node_modules` trees currently carry their dev deps, so `npx vitest run`
+   and `npm run build` work as-is. Kept as a fallback rather than a step.
+5. **The notes backend test command needs `cd notes` first** (its build
+   context is `./backend`); "same pattern" was not enough to run it.
+6. **Settings keys were listed as two examples.** The real set is
+   `background_color`, `cyberpunk_skin`, `failover_origins`,
+   `hide_completed`, `streak_emoji`, plus internal `seeded` filtered out of
+   `GET /settings`.
+
+**Added**
+
+- Encrypted buddy snapshots (`blob_job`, AES-256-GCM, `BLOB_KEEP`,
+  `scripts/restore_blob.py`) — previously undocumented entirely.
+- `docker-compose.mirror.yml` (project `streak_mirror`, port 3100).
+- That `SYNCED_TABLES` covers four tables only; completions, settings and
+  deletions have hand-written export/import blocks, and `sync_conflicts` /
+  `sync_peers` never sync.
+- The 10 s watermark `SLACK`, the NTP assumption, and why backup/mirror nodes
+  skip the seed.
+- Streak endpoint specifics: 400-day walk, unscheduled days carry the streak,
+  and `daily_streak_counts.sql` excluding off-schedule completions.
+- `tasks_reorder.sql`'s `due_date` guard, the `seeded`-flag seeding gate, and
+  `GET /api/health`'s role in failover.
+- Frontend: the 401-reload rule in `api.js`, `syncstate.js` as the tested
+  state machine, the `__BUILD_ID__` / entry-asset comparison, the failover
+  chain's strict ordering and `no-cors` probe, and the `streak-notes.tools.v1`
+  localStorage key.
+- Notes app: ids as base64url paths, etag-as-content-hash, the three-attempt
+  409 merge loop, the rename/tombstone mtime ordering, the sticky section's
+  403s and markdown-only rule, the size limits, magic-byte image sniffing,
+  and a map of the five `draw/` modules.
+- Test baselines, all re-run and green on this pass: backend **82**, notes
+  backend **78**, task frontend **88**, notes frontend **98**.
+
+---
+
+## 2026-09-23 pass: mobile horizontal overflow
+
+Two regressions from the 2026-09-19 pass, both showing up on a phone as the
+same symptom — the layout shunted sideways with a bar of dead space down the
+right edge. Measured in headless Firefox at 320/360/390 px against the real
+stylesheet, before and after.
+
+1. **The category dropdown was wider than the room it had.** `.prop-menu` was
+   `left: 0; width: max(100%, 250px)` inside `.prop-value`, which is only what
+   the 104 px label leaves — ~230 px at 390 px. So it hung 22 px past the
+   modal. That alone would just be ugly, except `.modal` sets `overflow-y:
+   auto`, and an overflow-y that isn't `visible` makes overflow-x compute to
+   `auto` too: the modal quietly became a horizontal scroller. The menu's
+   `scrollIntoView({ block: 'nearest' })` then scrolled it, because `inline`
+   defaults to `'nearest'` as well — 36 px sideways, clipping the title, the
+   notes and the Delete button, and the scroll stayed put after the menu
+   closed. Now the menu hangs off the value's *right* edge with
+   `max-width: min(320px, calc(100% + 112px))`, so it can grow leftwards
+   across the label but never past the row; and the open-nudge is a hand-
+   written vertical-only scroll (`scrollParent()` walks for the real scroller,
+   since `display: contents` moves it between breakpoints).
+2. **The sync caret pushed the topbar past the viewport.** `.topbar` is one
+   non-wrapping row of content-sized buttons with no `min-width: 0`, so it
+   refused to be narrower than its contents: a fixed 374 px. Adding the 25 px
+   caret took it over the line — at 360 px the *document* measured 390 px
+   wide, i.e. 30 px of horizontal page scroll with the avatar off the edge
+   (it was 5 px before the caret, 70 px at 320 px). The groups now shrink,
+   `.settings` opts out so the avatar stays round, and `.month-title` is the
+   shock absorber: `min-width: 0` plus `nowrap`/`ellipsis`. To keep it from
+   actually ellipsising, the mobile row also tightens its gaps and the caret's
+   padding, and the month name renders abbreviated below 640 px (`.month-long`
+   / `.month-short`, one shown at a time) — "Sep 2026" instead of a clipped
+   "Septemb…". The cyberpunk skin sets the same title in spaced-out uppercase,
+   so it gets a slightly smaller size there to fit the same slot.
+
+After: the document is exactly viewport-wide at 320, 360 and 390 px, and the
+open menu sits inside the modal with `scrollLeft` at 0 in both skins and both
+modal layouts.
+
+Verified: 88 frontend unit tests pass, `npm run build` is clean, and the
+topbar and the open category menu were rendered from the real stylesheet in
+headless Firefox at 320/360/390/1200 px, plain and cyberpunk.
+
+---
+
+# Sticky-notes pass — unreadable notes under the skin, and one launcher bar (2026-09-23)
+
+## 1. Black blocks behind every quick note (bug)
+
+With the cyberpunk skin on — which this deployment has (`cyberpunk_skin = '1'`)
+— every line of a sticky note sat on a near-black panel, under the pad's own
+dark ink on yellow paper. Unreadable, and not phone-specific; it was just as
+broken on desktop.
+
+`.cyberpunk .notes-editor { background: #0d0d11 }` was the culprit. The sticky
+pad reuses the task modal's `NotesEditor` and undresses it with
+`.sticky-editor { background: transparent }` — a single class, which the skin's
+two-class rule outweighs. The skin's own header comment says the pad keeps its
+leather-and-paper look on purpose, so the rule now steps around it:
+`.cyberpunk .notes-editor:not(.sticky-editor)`.
+
+Checked the rest of the skin for the same leak: `.cyberpunk .check-circle.checked`
+is outweighed by `.sticky-editor .notes-line.check .check-circle.checked`
+(4 classes to 3), and every other colour inside the pad is set explicitly, so
+this was the only one.
+
+## 2. The floating icon becomes a launcher bar
+
+The drag-anywhere sticky-note FAB is gone. In its place, one `.sticky-launch`
+button — yellow paper, the note icon, "Quick notes", a `+` — rendered in
+**ordinary document flow** directly after `DayTaskList`:
+
+- **Phone (≤640px):** a full-width bar under today's tasks.
+- **641px and up:** the *same element*, `position: fixed` in the bottom-right
+  corner at `calc(24px + env(safe-area-inset-*))`. One element in two layouts,
+  so there is no second copy to keep in step.
+
+Consequences, all in `StickyNotes.jsx`:
+
+- Dropped: pointer-drag handlers, `clampPos`/`cornerPos`/`readPos`, and the
+  `streak.sticky.pos.v1` localStorage key (the position is no longer the
+  user's to choose). Removed from the key list in `CLAUDE.md`.
+- The pad is anchored off the launcher's measured rect instead of the icon's
+  stored coordinates. Measured in a **layout** effect so the pad is never
+  painted in the fallback corner first. No scroll listener: only the desktop
+  layout reads the anchor, and there the launcher is `position: fixed`.
+- On a phone the pad is pinned to the bottom of the viewport rather than hung
+  off the launcher — the launcher scrolls with the page there, so anchoring to
+  it would fling the pad off-screen on the first scroll.
+- **A tap outside now closes the pad.** This is load-bearing, not polish: the
+  old floating icon sat *above* the pad and doubled as the close button, and a
+  phone-sized pad covers the launcher. The launcher itself is excluded from the
+  handler, or its own click would close and immediately reopen.
+- `Onboarding.jsx` step 4 described "the floating notepad icon"; it now
+  describes where the bar actually is in each layout.
+
+## Verification
+
+- `vitest run` (task frontend): **88 passed**, unchanged — nothing here has a
+  unit test; `StickyNotes.jsx` exports only `titleOf`/`stamp`, neither touched.
+- `npm run build` (task frontend): clean.
+- Not rebuilt into the running `streak_app` stack — the live deployment still
+  serves the previous bundle until `docker compose up -d --build frontend`.
+
+---
+
+# 2026-09-23 — Streak Notes: palm rejection, and pages that open when you make them
+
+Three reports, all from an iPad: the Pencil "randomly highlights action icons"
+while writing, the notebook opens on Quick notes, and a new page does not
+become the page you are looking at.
+
+## 1. Palm rejection off the canvas
+
+The old guard was in two hand-written copies, one on the stage and one on the
+page title, and nothing at all on the toolbar — which is where the reported
+symptom was coming from. A resting hand landing on the bar picked a pencil or
+fired undo, and iOS left the button lit afterwards.
+
+Two things were wrong beyond the missing coverage:
+
+- **The wrong event.** Both copies called `preventDefault()` on `pointerdown`.
+  That does not stop the `click`, the focus, or the simulated `:hover` iOS
+  synthesises from a touch — only cancelling `touchstart` does. The old guard
+  was "preventing" events that were never the ones causing the highlight.
+- **The wrong scope.** A React `onPointerDown` cannot stop a sibling's
+  `onClick`: React's listeners all sit at the app root, so anything attached
+  inside the tree is already too late.
+
+Now: `notes/frontend/src/draw/palm.js` holds the decision as one pure
+predicate, and `DrawingPage` installs it in both places that need it.
+
+- **The canvas** keeps its own `pointerdown` test, now calling `isPalm()`.
+- **Everything else** — toolbar, title, top bar, sidebar — is covered by
+  native **capture-phase listeners on `document`**, which run before anything
+  React would dispatch. They cancel `touchstart`, remember the refused
+  `Touch.identifier`, and cancel that touch's `touchend` too, so a click
+  Safari synthesises on release is matched to the touch that caused it rather
+  than guessed at from a time window.
+
+What counts as a hand:
+
+- The pen tip is down, anywhere on the page.
+- The pen tip was down recently — 700 ms on the canvas, 1200 ms on the chrome.
+  The chrome waits longer because a refused pan is repeated and a stray undo
+  is not. "Recently" now means **contact**, not sight: the old code stamped
+  the clock on every pen `pointermove`, and a Pencil streams those the whole
+  time it hovers, so merely holding the pen over the page would have locked
+  touch out indefinitely. `e.buttons` gates it.
+- The contact patch is wider than 34 CSS px, read from `Touch.radiusX/radiusY`.
+  The old code read `PointerEvent.width/height`, which iOS pins at 1 — the
+  size test had never once fired on the device it was written for.
+- A gesture already has an owner, so this is a second contact.
+
+Two asymmetries fall out of the event order:
+
+- The Pencil raises touch events too, so stylus touches are skipped outright.
+  Without that the gate reads its own pen `pointerdown` as "pen is down" and
+  refuses every toolbar tap made with the pen — the fix would have broken the
+  toolbar for the pen while fixing it for the palm.
+- `pointerdown` fires *before* `touchstart`, so on the canvas the stage has
+  already accepted a touch as a finger pan by the time iOS reports its width.
+  A pan that turns out to be palm-sized is now retracted and the scroll put
+  back, at most one frame late.
+
+Belt and braces in CSS: `-webkit-tap-highlight-color: transparent` on the
+toolbar and the title, so anything that does slip past at least does not flash
+a grey box. `.tool.on` is the real feedback and survives it.
+
+A stuck `penDown` would deaden every button on the page, so a pointer released
+outside the window (`blur`) clears it.
+
+## 2. A new page now opens, maximized
+
+This was one bug wearing two hats, and the same bug behind the rename that
+"bounced to the top of the section".
+
+`App.jsx` runs a repair effect on every tree change that puts the selection
+back on something that exists. Every mutation set the selection **and then**
+refreshed the tree — two ticks, and in the render between them the id the
+repair was judging did not exist yet, so it faithfully repaired it back to
+whatever had been selected before. A created page was selected for one frame
+and then dropped.
+
+- The rule moved to `notes/frontend/src/selection.js` as a pure function, with
+  tests.
+- Every mutation now goes through one `mutate()` helper that runs the call,
+  fetches the tree, and commits the tree and the selection in the **same
+  synchronous block** so React batches them into a single render. That covers
+  create, delete and rename for both sections and pages; `run()` is gone.
+- Deleting a page no longer flashes the error banner: the old ordering could
+  briefly re-select the page that had just been deleted and 404 fetching it.
+- A new page also collapses the sidebar. It is made to be written in, and on
+  an iPad the two lists cost a drawing about a third of the canvas. A new
+  *section* keeps the sidebar — an empty section's next step is the `+ Page`
+  button beside it.
+
+## 3. Quick notes as the default
+
+Already correct in source (`sections.find((s) => !s.sticky)`), so this one was
+a live-deployment lag, not a code fix — the running container still serves the
+bundle from before that change. It is now covered by a test in
+`selection.test.js` so it cannot regress, and the rule keys off the server's
+`sticky` flag rather than the section's name.
+
+Also fixed the New page menu, which still described hand-drawn pages as a
+"Blank canvas — placeholder for now".
+
+## Verification
+
+- `vitest run` (notes frontend): **117 passed** (was 98) — 11 new for
+  `palm.js`, 8 for `selection.js`.
+- `vitest run` (task frontend): **88 passed**, unchanged.
+- Notes backend: **78 passed**, unchanged — nothing server-side moved.
+- `npm run build`: clean for both frontends.
+- Not rebuilt into the running `streak_app` stack. The palm fix cannot be
+  tested from a browser until `docker compose up -d --build frontend`, and
+  a tab already open keeps its old bundle until reloaded.
+
+# 2026-09-23 — Escape closes the task modal
+
+Escape inside a task view now does exactly what the primary button does:
+**Close** for an existing task (`applyLive()` then dismiss, since edits to an
+existing task are already live) and **Save** for a new one, so a half-typed new
+task is committed rather than thrown away. Failure behaves the same too — the
+save handler leaves the modal open on an error, so nothing is silently lost.
+
+One `useEffect` in `TaskModal.jsx`, listening on `document` in the **bubble**
+phase. That phase is the whole trick: the category dropdown's own Escape
+handler is a *capture*-phase listener on `document` that calls
+`stopPropagation()`, so while that menu is open Escape closes the menu only and
+never reaches the modal. `e.defaultPrevented` is skipped for the same reason —
+anything that has already claimed the key keeps it. The effect has no
+dependency array on purpose: `save`/`close` close over every field of the form,
+and re-binding one listener per render is cheaper than reasoning about a stale
+closure.
+
+## Verification
+
+- `vitest run` (task frontend): **88 passed**, unchanged.
+- `npm run build` (task frontend): clean.
+- Not rebuilt into the running `streak_app` stack — needs
+  `docker compose up -d --build frontend`, and an open tab keeps its old bundle
+  until reloaded.
+
+# 2026-09-23 — A new daily task no longer eats the streak
+
+Adding a daily habit used to reset the streak counter to at most 1. The streak
+walk judges each past day against the schedules **as they stand now**
+(`_required_on` runs over the current `days_mask` list), so a task created
+today was counted as required — and missed — on every day behind it, and the
+run ended at the first one.
+
+`POST /api/daily` now checks the new task off on every day it *would* have been
+due before the day it was created. `daily_completions_backfill.sql` does it in
+one statement: `generate_series` over the window, cross-joined to the row that
+was just inserted and filtered by that row's own `days_mask` with the same
+ISODOW expression `daily_streak_counts.sql` uses. Reading the mask from the row
+rather than taking it as a parameter is deliberate — it cannot disagree with
+the task that was just created. Off-schedule days are skipped: the streak query
+already ignores off-schedule completions, so rows there would buy nothing and
+only muddy the history.
+
+Details that matter:
+
+- **The creation day is not backfilled.** You still have to actually do it
+  today; the streak simply doesn't break behind you.
+- **The window is `STREAK_WINDOW_DAYS = 400`**, now a named constant in
+  `routers/daily.py` shared with the streak walk that already used 400. No
+  streak longer than the walk can be counted, so there is nothing further back
+  worth protecting — and the backfill stays bounded at ~400 rows.
+- **`today` is a query param on the create route**, for exactly the reason
+  `/api/daily/streak` already takes one: the server timezone must not decide
+  which day a client is on. It is optional and falls back to the server's date,
+  so a client that predates this still creates tasks. `api.js` passes
+  `todayIso()`; `SettingsMenu.jsx` is the only caller.
+- **Insert and backfill share one transaction.** A task that exists without its
+  backfill is precisely the broken streak this is here to prevent.
+- Backfilled rows are ordinary completions, so they ride the normal sync path
+  (the hand-written `completions` block in `sync.py`) to every node.
+
+## Verification
+
+- Backend suite: **90 passed** (82 before; 6 new backfill tests in
+  `test_daily.py`, 2 new streak tests in `test_streak.py`). The new streak
+  tests pin both halves: a task added mid-streak leaves the days behind it
+  intact, and ticking it today restores the full count.
+- `vitest run` (task frontend): **88 passed**, unchanged. `npm run build`:
+  clean.
+- Not rebuilt into the running `streak_app` stack — the backend change needs
+  `docker compose up -d --build frontend` (which recreates the backends it
+  depends on), and an open tab keeps its old bundle until reloaded.

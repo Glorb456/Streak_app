@@ -299,7 +299,14 @@ export default function App() {
           )}
         </div>
         <div className="month-nav">
-          <span className="month-title">{MONTH_NAMES[month]} {year}</span>
+          {/* Two spellings, one shown at a time by styles.css: the phone
+              topbar is too tight for "September" and clipping it there reads
+              as breakage. */}
+          <span className="month-title">
+            <span className="month-long">{MONTH_NAMES[month]}</span>
+            <span className="month-short">{MONTH_NAMES[month].slice(0, 3)}</span>
+            {' '}{year}
+          </span>
           <button onClick={() => shiftMonth(-1)}>‹</button>
           <button onClick={goToday}>Today</button>
           <button onClick={() => shiftMonth(1)}>›</button>
@@ -352,8 +359,11 @@ export default function App() {
         onDragActive={setDragging}
       />
 
-      {/* Floats over everything, draggable, and stores its notes in Streak
-          Notes. Outside the modal branch so it stays reachable either way. */}
+      {/* Renders its own launcher bar in flow, which is why it sits here and
+          not at the end: on a phone that bar lands directly under the day
+          list. On desktop the bar is pinned to the bottom-right corner
+          instead. Notes live in Streak Notes; outside the modal branch so it
+          stays reachable either way. */}
       <StickyNotes />
 
       {conflictsOpen && (

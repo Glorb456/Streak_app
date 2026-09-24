@@ -33,7 +33,7 @@ const STEPS = [
   {
     icon: '⚙️',
     title: 'Everything else',
-    body: 'The emoji button (top right) opens settings: categories, daily tasks, colors, the cyberpunk skin, and backups. The floating notepad icon is your sticky notes, and “Launch Streak notes” opens the full notes app.',
+    body: 'The emoji button (top right) opens settings: categories, daily tasks, colors, the cyberpunk skin, and backups. The yellow “Quick notes” bar — bottom-right on a desktop, under today’s tasks on a phone — is your sticky notes, and “Launch Streak notes” opens the full notes app.',
   },
 ]
 

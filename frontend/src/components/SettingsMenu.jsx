@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { DAY_NAMES, EVERY_DAY } from '../dates.js'
+import { DAY_NAMES, EVERY_DAY, todayIso } from '../dates.js'
 
 // Mon-first initials for the weekday toggles. Tue/Thu and Sat/Sun collide, so
 // the full name rides along in each button's title.
@@ -258,7 +258,7 @@ export default function SettingsMenu({ categories, dailyTasks, settings, streak,
             <span className="panel-hint">Turn every day off to park a task.</span>
           </div>
           <button
-            onClick={() => call(() => api.createDailyTask({ name: 'New daily task', color: '#f9e2ce' }))}
+            onClick={() => call(() => api.createDailyTask({ name: 'New daily task', color: '#f9e2ce' }, todayIso()))}
           >
             + Add daily task
           </button>

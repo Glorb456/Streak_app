@@ -42,7 +42,11 @@ export const api = {
     req('/tasks/reorder', { method: 'PUT', body: JSON.stringify({ due_date, ids }) }),
 
   dailyTasks: () => req('/daily'),
-  createDailyTask: (body) => req('/daily', { method: 'POST', body: JSON.stringify(body) }),
+  // Takes the caller's local date: the server checks the new task off on every
+  // scheduled day before it, so adding a habit doesn't break the streak, and
+  // only the client knows which day it is on.
+  createDailyTask: (body, today) =>
+    req(`/daily${today ? `?today=${today}` : ''}`, { method: 'POST', body: JSON.stringify(body) }),
   updateDailyTask: (id, body) => req(`/daily/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteDailyTask: (id) => req(`/daily/${id}`, { method: 'DELETE' }),
 

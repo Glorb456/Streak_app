@@ -120,3 +120,28 @@ def test_all_tasks_parked_means_zero(client):
     _set_all_masks(client, 0)
     _complete_all(client, 0)
     assert _streak(client) == 0
+
+
+# ---------- adding a daily task mid-streak ----------
+
+
+def test_new_daily_task_does_not_break_the_running_streak(client):
+    # The streak walk requires every *currently* active task on every past day,
+    # so without the create-time backfill the new task would read as missed all
+    # the way back and this would answer 0.
+    _complete_all(client, -2)
+    _complete_all(client, -1)
+    _complete_all(client, 0)
+    client.post(f"/api/daily?today={TODAY.isoformat()}", json={"name": "Read"})
+    # Today drops out until the new task is ticked, but the days behind it are
+    # backfilled and still count.
+    assert _streak(client) == 2
+
+
+def test_new_daily_task_completed_today_keeps_the_full_streak(client):
+    _complete_all(client, -2)
+    _complete_all(client, -1)
+    _complete_all(client, 0)
+    d = client.post(f"/api/daily?today={TODAY.isoformat()}", json={"name": "Read"}).json()
+    _complete(client, d["id"], 0)
+    assert _streak(client) == 3

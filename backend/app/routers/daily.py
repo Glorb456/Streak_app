@@ -8,6 +8,11 @@ from ..schemas import DailyCompletion, DailyTask, DailyTaskIn
 
 router = APIRouter(tags=["daily"])
 
+# How far back the streak walk looks, and therefore how far back a newly
+# created daily task is backfilled. A streak longer than this cannot be
+# counted in the first place, so there is nothing further back to protect.
+STREAK_WINDOW_DAYS = 400
+
 
 @router.get("/daily", response_model=list[DailyTask])
 async def list_daily_tasks():
@@ -55,7 +60,7 @@ async def get_streak(today: dt.date):
     if not any(masks):
         return {"streak": 0}
 
-    start = today - dt.timedelta(days=400)
+    start = today - dt.timedelta(days=STREAK_WINDOW_DAYS)
     counts = await db.pool().fetch(db.sql("daily_streak_counts"), start, today)
     done = {r["day"]: r["done"] for r in counts}
 
@@ -77,11 +82,32 @@ async def get_streak(today: dt.date):
     return {"streak": streak}
 
 
+# A new daily task is checked off on every scheduled day *before* the day it
+# was created, so adding a habit never costs an existing streak — the streak
+# walk judges past days against the schedules as they stand now, and an
+# unbackfilled new task would read as missed on every one of them. Today is
+# deliberately left untouched: you still have to actually do it today.
+#
+# `today` is the client's local date, for the same reason /daily/streak takes
+# one — the server timezone must not decide which day a client is on. It stays
+# optional so a client that predates this still creates tasks, just against the
+# server's date.
 @router.post("/daily", response_model=DailyTask)
-async def create_daily_task(body: DailyTaskIn):
-    row = await db.pool().fetchrow(
-        db.sql("daily_tasks_create"), body.name, body.color, body.days_mask
-    )
+async def create_daily_task(body: DailyTaskIn, today: dt.date | None = None):
+    today = today or dt.date.today()
+    # One transaction: a task that exists without its backfill is exactly the
+    # broken streak this is here to prevent.
+    async with db.pool().acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                db.sql("daily_tasks_create"), body.name, body.color, body.days_mask
+            )
+            await conn.execute(
+                db.sql("daily_completions_backfill"),
+                row["id"],
+                today - dt.timedelta(days=STREAK_WINDOW_DAYS),
+                today - dt.timedelta(days=1),
+            )
     return dict(row)
 
 

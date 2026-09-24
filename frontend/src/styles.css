@@ -24,6 +24,15 @@ body {
   gap: 12px;
   margin-bottom: 12px;
 }
+/* A single non-wrapping row of buttons whose widths are all content-sized, so
+   without these it simply refuses to be narrower than its contents and pushes
+   the document wider than the viewport — a phone then scrolls sideways onto a
+   bar of empty space, with the avatar off the edge. min-width:0 lets the
+   groups shrink (flex items default to min-content, not 0); the month title
+   below is the one thing in the row that can give, and it gives by
+   ellipsising. The avatar must stay round, so it opts out. */
+.topbar-left, .month-nav { min-width: 0; }
+.settings { flex: none; }
 
 .sync-btn {
   background: #2f6fed;
@@ -58,7 +67,19 @@ body {
 .hide-done-btn.on { background: #2f6fed; border-color: #2f6fed; color: white; }
 
 .month-nav { display: flex; align-items: center; gap: 6px; }
-.month-title { font-size: 17px; font-weight: 600; margin-right: 8px; }
+.month-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin-right: 8px;
+  /* The row's shock absorber: shrinkable, and clipped rather than wrapped, so
+     the nav buttons beside it keep their size. Only ever truncates on a phone
+     — there is room for "September 2026" everywhere else. */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.month-title .month-short { display: none; }
 .month-nav button {
   background: transparent;
   color: #bbb;
@@ -634,9 +655,17 @@ body {
 .prop-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  /* Hung off the value's right edge, not its left, and never wider than the
+     whole row. The value column is only what the 104px label leaves — about
+     230px on a phone — so a left-anchored 250px menu lands past the modal's
+     right edge, and .modal's overflow-y:auto makes its overflow-x compute to
+     auto: the overflow turns the entire modal into a sideways scroller, which
+     is what put a blank strip down the right of the screen. Growing leftwards
+     instead keeps the menu inside, and the max-width stops it at the label's
+     left edge (104px label + 8px gap). */
+  right: 0;
   width: max(100%, 250px);
-  max-width: min(320px, 86vw);
+  max-width: min(320px, calc(100% + 112px));
   background: #2b2b2b;
   border: 1px solid #3f3f3f;
   border-radius: 8px;
@@ -867,10 +896,22 @@ body {
      meaning. */
   .sync-btn, .hide-done-btn { padding: 7px 10px; }
   .sync-btn .label, .hide-done-btn .label { display: none; }
-  /* Buys back the width the toggle costs, so the row is no tighter than it
-     was before it existed. */
-  .month-nav button { padding: 4px 8px; }
-  .month-title { font-size: 14px; margin-right: 4px; }
+  /* Buys back the width the toggle and the status caret cost, so the row is no
+     tighter than it was before either existed. */
+  .topbar { gap: 8px; }
+  .topbar-left { gap: 6px; }
+  .sync-caret { padding: 7px 6px; }
+  .month-nav { gap: 4px; }
+  .month-nav button { padding: 4px 7px; }
+  /* The 4px nav gap is separation enough at this size. */
+  .month-title { font-size: 14px; margin-right: 0; }
+  /* The skin sets this title in spaced-out uppercase, which costs it ~15px
+     the phone row hasn't got — without this the year is what gets clipped.
+     `.app.cyberpunk` rather than `.cyberpunk` so it out-specifies the skin's
+     own letter-spacing rule further down the file. */
+  .app.cyberpunk .month-title { font-size: 13px; letter-spacing: 0.02em; }
+  .month-title .month-long { display: none; }
+  .month-title .month-short { display: inline; }
   .day-cell { padding: 2px; }
   .day-num { text-align: center; padding: 2px 0; }
 }
@@ -995,27 +1036,66 @@ body {
   --sticky-brown: #8a6a41;
 }
 
-.sticky-fab {
-  position: fixed;
-  z-index: 92;
-  padding: 4px;
-  border: none;
-  border-radius: 14px;
-  background: transparent;
-  cursor: grab;
-  /* The icon is dragged with pointer events, so the browser must not claim
-     the gesture for scrolling first. */
-  touch-action: none;
+/* The launcher. One element in two layouts: an ordinary block here, which the
+   phone gets as a bar under the day list, and a corner-pinned button from
+   641px down the file. Yellow paper rather than chrome, so it reads as the
+   pad's own handle and not as another toolbar button. */
+.sticky-launch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 12px;
+  border: 1px solid rgba(120, 104, 58, 0.75);
+  border-radius: 10px;
+  background: linear-gradient(var(--sticky-paper), #efe6a8);
+  color: var(--sticky-ink);
+  font-family: var(--sticky-hand);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   -webkit-user-select: none;
   user-select: none;
-  -webkit-touch-callout: none;
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
-  transition: transform 0.12s ease;
+  transition: filter 0.12s ease;
 }
-.sticky-fab img { width: 100%; height: 100%; display: block; pointer-events: none; }
-.sticky-fab:hover { transform: scale(1.06); }
-.sticky-fab:active { cursor: grabbing; transform: scale(0.96); }
-.sticky-fab.on { transform: scale(1.04); }
+.sticky-launch img {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: block;
+  pointer-events: none;
+}
+.sticky-launch-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The + is the affordance; sized off the hand font so it doesn't read as a
+   stray letter. line-height:1 keeps it from stretching the bar. */
+.sticky-launch-plus {
+  flex: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 22px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--sticky-brown);
+}
+.sticky-launch:hover { filter: brightness(1.05); }
+.sticky-launch.on { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(138, 106, 65, 0.55); }
+
+/* Everything wider than the phone layout: the same bar, locked to the
+   bottom-right corner. It shrinks to its contents there, and the offsets are
+   generous enough (plus the iOS safe-area insets, which resolve to 0px
+   elsewhere) that it clears the page's own 40px bottom padding rather than
+   sitting on the last row of content. */
+@media (min-width: 641px) {
+  .sticky-launch {
+    position: fixed;
+    z-index: 92;
+    right: calc(24px + env(safe-area-inset-right));
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    width: auto;
+    margin-top: 0;
+  }
+}
 
 .sticky-pad {
   position: fixed;
@@ -1532,7 +1612,14 @@ body {
   box-shadow: 0 12px 44px rgba(0, 0, 0, 0.8), var(--cp-glow);
 }
 .cyberpunk .desc-input:focus { border-bottom-color: var(--cp-red-dim); }
-.cyberpunk .notes-editor { background: #0d0d11; border-color: var(--cp-border); border-radius: 0; }
+/* `:not(.sticky-editor)` is load-bearing, not tidiness. The sticky pad reuses
+   this editor and undresses it with `.sticky-editor { background: transparent }`
+   — one class, which this two-class rule outweighs. With the skin on, every
+   note in the pad was painted #0d0d11 under the pad's own dark ink on yellow
+   paper: a black block with unreadable text, on phone and desktop alike. The
+   pad is its own object and keeps its paper (see the note at the top of this
+   section), so the skin has to step around it. */
+.cyberpunk .notes-editor:not(.sticky-editor) { background: #0d0d11; border-color: var(--cp-border); border-radius: 0; }
 .cyberpunk .notes-toolbar { background: #0d0d11; }
 .cyberpunk .notes-check-btn { background: var(--cp-panel-2); border-color: var(--cp-border); color: var(--cp-cyan); border-radius: 0; }
 .cyberpunk .mini-cal { border-color: var(--cp-border); border-radius: 0; }

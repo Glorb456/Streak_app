@@ -1,23 +1,24 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { notesApi } from '../api.js'
 import NotesEditor from './NotesEditor.jsx'
 
-// A floating sticky-note pad, in the shape of the pre-iOS 7 Notes app: leather
-// bar, ruled yellow paper, handwriting. It lives only in the task app — Streak
+// A sticky-note pad, in the shape of the pre-iOS 7 Notes app: leather bar,
+// ruled yellow paper, handwriting. It lives only in the task app — Streak
 // Notes is already a notes app and doesn't need a second one floating over it.
+//
+// It is opened from one yellow launcher bar that is rendered in ordinary
+// document flow, directly under the day list. On a phone that is where it
+// stays — a bar under today's tasks; from 641px up styles.css locks the same
+// element to the bottom-right corner. One element, two layouts, so there is no
+// second copy to keep in step.
 //
 // The notes themselves are stored in Streak Notes, in its app-owned "Sticky
 // Notes" section, as ordinary markdown. Both apps sit behind one nginx and one
 // oauth2-proxy session, so this is a plain fetch to the other app's API rather
 // than a second store to keep in step.
 
-const POS_KEY = 'streak.sticky.pos.v1'
-const ICON = 54
 const EDGE = 16
-// Extra room at the bottom for the iOS home indicator, which env() reserves in
-// CSS but is not readable from here.
-const BOTTOM_EDGE = 26
-const DRAG_SLOP = 4  // px of movement before a tap counts as a drag
+const GAP = 10       // between the launcher and the pad hung off it
 const SAVE_DELAY = 700
 const DEFAULT_TITLE = 'New Note'
 
@@ -48,23 +49,7 @@ export function stamp(ms) {
   return { day, when: `${date}  ${time}`, short: sameDay(d, now) ? time : date }
 }
 
-const readPos = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
-    return raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) ? raw : null
-  } catch { return null }
-}
-
-/** Bottom right — where it sits on a device that has never been dragged. */
-const cornerPos = () => ({
-  x: window.innerWidth - ICON - EDGE,
-  y: window.innerHeight - ICON - BOTTOM_EDGE,
-})
-
-const clampPos = (p) => ({
-  x: Math.max(EDGE / 2, Math.min(p.x, window.innerWidth - ICON - EDGE / 2)),
-  y: Math.max(EDGE / 2, Math.min(p.y, window.innerHeight - ICON - EDGE / 2)),
-})
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi))
 
 // Drawn rather than set in emoji: the originals were thin brown line art, and
 // an emoji trash can renders in full colour on every platform that has one.
@@ -87,8 +72,10 @@ const TrashIcon = () => (
 )
 
 export default function StickyNotes() {
-  const [pos, setPos] = useState(null)
   const [open, setOpen] = useState(false)
+  // The launcher's viewport rect, remeasured while the pad is open: on the
+  // phone layout the launcher is in flow and scrolls, on desktop it is pinned.
+  const [anchor, setAnchor] = useState(null)
   const [view, setView] = useState('list')       // 'list' | 'note'
   const [section, setSection] = useState(null)
   const [notes, setNotes] = useState([])
@@ -96,7 +83,8 @@ export default function StickyNotes() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const dragRef = useRef(null)
+  const launchRef = useRef(null)
+  const padRef = useRef(null)
   const noteRef = useRef(null)
   const savedRef = useRef('')
   const timerRef = useRef(null)
@@ -108,14 +96,18 @@ export default function StickyNotes() {
   const blockedTitleRef = useRef(null)
   noteRef.current = note
 
-  // Position is per device: where a widget sits on the screen is a property of
-  // the screen, not of the notebook.
-  useEffect(() => { setPos(clampPos(readPos() || cornerPos())) }, [])
-  useEffect(() => {
-    const onResize = () => setPos((p) => (p ? clampPos(p) : p))
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  // Layout effect, not effect: the pad's first render has no anchor yet, and
+  // measuring before paint is what keeps it from being drawn in the fallback
+  // corner and jumping. No scroll listener — the only layout that reads the
+  // anchor is the desktop one, where the launcher is position:fixed and its
+  // rect does not move with the page.
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    const measure = () => setAnchor(launchRef.current?.getBoundingClientRect() ?? null)
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [open])
 
   // ------------------------------------------------------------- saving
 
@@ -267,40 +259,7 @@ export default function StickyNotes() {
     }
   }
 
-  // ------------------------------------------------------------ drag
-
-  const onPointerDown = (e) => {
-    e.currentTarget.setPointerCapture(e.pointerId)
-    dragRef.current = {
-      id: e.pointerId,
-      dx: e.clientX - pos.x,
-      dy: e.clientY - pos.y,
-      startX: e.clientX,
-      startY: e.clientY,
-      moved: false,
-    }
-  }
-
-  const onPointerMove = (e) => {
-    const d = dragRef.current
-    if (!d || d.id !== e.pointerId) return
-    if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_SLOP) return
-    d.moved = true
-    setPos(clampPos({ x: e.clientX - d.dx, y: e.clientY - d.dy }))
-  }
-
-  const onPointerUp = (e) => {
-    const d = dragRef.current
-    if (!d || d.id !== e.pointerId) return
-    dragRef.current = null
-    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* already gone */ }
-    if (d.moved) {
-      // Only a deliberate move is remembered, so a tap can never nudge it.
-      try { localStorage.setItem(POS_KEY, JSON.stringify(pos)) } catch { /* not fatal */ }
-      return
-    }
-    setOpen((v) => !v)
-  }
+  // --------------------------------------------------------- open/close
 
   useEffect(() => {
     if (!open) return undefined
@@ -309,30 +268,47 @@ export default function StickyNotes() {
     return () => document.removeEventListener('keydown', esc)
   }, [open])
 
-  if (!pos) return null
+  // A tap outside closes. On a phone the pad covers most of the screen and the
+  // launcher is behind it, so without this there is no way back out — the old
+  // floating icon sat above the pad and doubled as the close button.
+  // The launcher is excluded because its own click already toggles; letting
+  // this fire there too would close and immediately reopen.
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => {
+      if (padRef.current?.contains(e.target)) return
+      if (launchRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', away)
+    return () => document.removeEventListener('pointerdown', away)
+  }, [open])
 
-  // The pad hangs off the icon and is clamped into the viewport, so it opens
-  // wherever the icon has been parked without ever running off screen.
+  // The pad is clamped into the viewport either way. On a phone it is pinned to
+  // the bottom of the screen rather than hung off the launcher: the launcher is
+  // in flow there, so anchoring to it would fling the pad off-screen as soon as
+  // the page was scrolled.
   const narrow = window.innerWidth <= 640
   const width = narrow ? window.innerWidth - EDGE * 2 : 340
   const height = Math.min(narrow ? window.innerHeight - EDGE * 3 : 560, window.innerHeight - EDGE * 2)
-  const clamp = (v, max) => Math.max(EDGE, Math.min(v, max))
-  const above = pos.y - height - 10
-  const panel = {
-    width,
-    height,
-    left: clamp(pos.x + ICON - width, window.innerWidth - width - EDGE),
-    top: above >= EDGE
-      ? clamp(above, window.innerHeight - height - EDGE)
-      : clamp(pos.y + ICON + 10, window.innerHeight - height - EDGE),
-  }
+  const maxTop = Math.max(EDGE, window.innerHeight - height - EDGE)
+  const right = anchor ? anchor.right : window.innerWidth - EDGE
+  const above = anchor ? anchor.top : window.innerHeight - EDGE
+  const panel = narrow
+    ? { width, height, left: EDGE, top: maxTop }
+    : {
+        width,
+        height,
+        left: clamp(right - width, EDGE, Math.max(EDGE, window.innerWidth - width - EDGE)),
+        top: clamp(above - height - GAP, EDGE, maxTop),
+      }
 
   const when = stamp(note?.updated)
 
   return (
     <>
       {open && (
-        <div className="sticky-pad" style={panel} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="sticky-pad" ref={padRef} style={panel}>
           <div className="sticky-bar">
             {view === 'note' ? (
               <button type="button" className="sticky-btn back" onClick={backToList}>
@@ -432,22 +408,21 @@ export default function StickyNotes() {
         </div>
       )}
 
-      {/* Above the pad on purpose: with the pad covering a phone screen, the
-          icon is how you close it again. */}
+      {/* Ordinary flow, so on a phone it lands directly under the day list;
+          styles.css pins the same element to the bottom-right corner from
+          641px up. */}
       <button
         type="button"
-        className={`sticky-fab ${open ? 'on' : ''}`}
-        style={{ left: pos.x, top: pos.y, width: ICON, height: ICON }}
-        title="Sticky notes"
-        aria-label="Sticky notes"
-        aria-pressed={open}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onContextMenu={(e) => e.preventDefault()}
+        ref={launchRef}
+        className={`sticky-launch ${open ? 'on' : ''}`}
+        title="Quick notes"
+        aria-label="Quick notes"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
       >
         <img src="/icons/sticky_note_icon.png" alt="" draggable="false" />
+        <span className="sticky-launch-label">Quick notes</span>
+        <span className="sticky-launch-plus" aria-hidden="true">+</span>
       </button>
     </>
   )

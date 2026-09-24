@@ -76,6 +76,11 @@ infrastructure:
   note.
 - **The notes inside it are ordinary pages** and can be deleted, edited and
   read here like any other markdown.
+- **It is never what the notebook opens on.** The server pins it to the top of
+  the sidebar, because the pad writes there, but "first section" and "the
+  section to start in" are deliberately different answers — landing on someone
+  else's scratch pad is not where anyone means to begin. It is selected only
+  when it is the whole notebook, or when the user picks it.
 
 Sections carry a `sticky` flag in the tree, so both frontends key their
 affordances off the server's answer rather than matching on the name.
@@ -86,6 +91,27 @@ app, and in any other editor. Its filename is its first line, the way the old
 Notes app titled things — the pad renames the file as that line changes, and
 falls back to keeping the old name if another note already owns it (two notes
 may start with the same line; two files may not share a name).
+
+## Moving around
+
+`selection.js` holds one pure rule — which section and which page should be
+selected, given a tree and whatever is selected now — and `App.jsx` runs it on
+every tree change. That makes it the repair after a delete or a rename as well
+as the choice on first load, so no individual handler has to work out what
+should be selected next.
+
+Because it runs against whatever tree is in state, every mutation fetches the
+new tree and commits it **in the same synchronous block** as the selection it
+is moving. Split across two ticks, there is one render in which the id the
+rule is looking at does not exist yet, and it faithfully repairs the selection
+back to where it came from: a new page that refused to open, a rename that
+bounced to the top of its section.
+
+A new page opens maximized — selected, with the sidebar slid away. A page is
+made to be written in, and on an iPad the two lists cost a drawing about a
+third of the canvas. The ⤡ button in the top bar brings them back. A new
+*section* keeps the sidebar, because an empty section's next step is the
+`+ Page` button sitting beside it.
 
 ## Markdown pages
 
@@ -122,8 +148,9 @@ so the same page is crisp on a 3x iPad and a 1x monitor.
 ### Input
 
 - **The pencil draws, fingers scroll.** `pointerType === 'pen'` (and mouse)
-  draws; `'touch'` can only pan. That split *is* the palm rejection — a resting
-  palm arrives as a touch pointer and can never put ink down.
+  draws; `'touch'` can only pan. That split is half the palm rejection — a
+  resting palm arrives as a touch pointer and can never put ink down. The
+  other half is below.
 - **Every sample is kept.** `getCoalescedEvents()` returns the samples the
   digitiser took between frames; an Apple Pencil reports far faster than the
   display refreshes and dropping the rest visibly corners a fast curve.
@@ -131,6 +158,52 @@ so the same page is crisp on a 3x iPad and a 1x monitor.
   which puts ink under the tip a frame or two early.
 - **Pressure** comes from the pencil. A mouse has none, so width is derived
   from speed instead — a fast flick tapers the way a real pen does.
+
+### Palm rejection
+
+Keeping ink off the canvas was never the hard part. A resting hand also lands
+on the *chrome* — the toolbar, the page title, the top bar — where iOS hands
+it to whatever is underneath as an ordinary tap, and the app picks a new
+pencil or fires undo halfway through a word.
+
+`draw/palm.js` holds the decision as one pure predicate (`isPalm`) so both
+places that need it agree, and `DrawingPage` installs it twice:
+
+- **On the canvas**, in the stage's own `pointerdown`. A refused touch is
+  remembered by pointer id and stays refused for its whole lifetime.
+- **On everything else**, as native capture-phase listeners on `document`.
+  That is the only place that runs before React, whose own listeners sit at
+  the app root — `stopPropagation()` there means the tap never reaches an
+  `onClick`.
+
+The event matters as much as the test. `preventDefault()` on `pointerdown`
+does **not** stop the click, the focus or the simulated `:hover` that iOS
+synthesises from a touch; cancelling `touchstart` does. So the gate cancels
+`touchstart`, remembers the `Touch.identifier` it refused, and cancels that
+touch's `touchend` too, in case Safari synthesises the click on release
+anyway.
+
+What counts as a hand:
+
+- **The pen tip is down**, anywhere on the page.
+- **The pen tip was down recently** — 700 ms on the canvas, 1200 ms on the
+  chrome. The pause between characters is exactly when a hand shifts and
+  re-lands, so the window has to outlast it. Chrome waits longer because a
+  refused pan is repeated while a stray undo is not. "Recently" means
+  *contact*, not sight: a Pencil streams `pointermove` the whole time it
+  hovers, and counting hover would leave a finger unable to touch anything.
+- **The contact patch is wider than 34 CSS px.** `Touch.radiusX/radiusY`
+  carry this; iOS leaves `PointerEvent.width/height` at 1, so reading the
+  pointer alone silently disables the test on the one device it exists for.
+- **A gesture already has an owner**, so this is a second contact.
+
+Two asymmetries fall out of the event order. A Pencil raises touch events too,
+so stylus touches (`Touch.touchType`) are skipped outright — otherwise the
+gate would read its own `pointerdown` as "pen is down" and refuse every
+toolbar tap made with the pen. And `pointerdown` fires *before* `touchstart`,
+so on the canvas the stage has already accepted a touch as a finger pan by
+the time iOS says how wide it was; a pan that turns out to be palm-sized is
+retracted and the scroll put back, at most one frame late.
 
 ### Latency
 
@@ -226,7 +299,8 @@ cd streak/notes
 docker compose -f docker-compose.test.yml up --build \
     --abort-on-container-exit --exit-code-from backend-tests
 
-# Frontend: the markdown engine, the vector core (codec, geometry, doc, erase)
+# Frontend: the markdown engine, the vector core (codec, geometry, doc,
+# erase), the palm-rejection predicate and the selection rule
 docker run --rm -v "$PWD/frontend":/app -v /app/node_modules \
     -w /app node:20-alpine sh -c "npm install && npm test"
 ```

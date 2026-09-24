@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
+import { pickSelection } from './selection.js'
 import Sidebar from './components/Sidebar.jsx'
 import Topbar from './components/Topbar.jsx'
 import MarkdownPage from './components/MarkdownPage.jsx'
@@ -28,19 +29,20 @@ export default function App() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  // Land on something rather than an empty pane: first section, first page.
-  // Also repairs the selection after a delete, without needing every handler
-  // to work out what should be selected next. The app-owned Sticky Notes
-  // section is skipped as a default — it belongs to the task app's widget,
-  // not to whoever just opened their notebook — unless it is all there is.
+  // Land on something rather than an empty pane, and repair the selection
+  // after a delete or a rename, without every handler having to work out what
+  // should be selected next. The rule itself is in selection.js so it can be
+  // unit-tested — in particular that Sticky Notes, which the server pins to
+  // the top of the sidebar, is never what the notebook opens on.
+  //
+  // It runs against whatever tree is in state, which is why anything that
+  // creates a section or a page refreshes the tree *before* moving the
+  // selection: an id this has not heard of yet reads as stale and gets
+  // "repaired" straight back to where it came from.
   useEffect(() => {
-    if (!sections.length) { setActiveSectionId(null); setActivePageId(null); return }
-    const fallback = sections.find((s) => !s.sticky) || sections[0]
-    const current = sections.find((s) => s.id === activeSectionId) || fallback
-    if (current.id !== activeSectionId) setActiveSectionId(current.id)
-    if (!current.pages.some((p) => p.id === activePageId)) {
-      setActivePageId(current.pages[0]?.id ?? null)
-    }
+    const next = pickSelection(sections, activeSectionId, activePageId)
+    if (next.sectionId !== activeSectionId) setActiveSectionId(next.sectionId)
+    if (next.pageId !== activePageId) setActivePageId(next.pageId)
   }, [sections, activeSectionId, activePageId])
 
   // Content is fetched per page rather than shipped with the tree: the tree is
@@ -55,38 +57,62 @@ export default function App() {
     return () => { stale = true }
   }, [activePageId])
 
-  const run = async (fn) => {
-    try { await fn(); setError('') }
-    catch (e) { setError(e.message) }
-    await refresh()
+  // Every mutation goes through here, because every one of them has to hand
+  // the new tree and the new selection to React *together*. Committing the
+  // tree first and the selection a tick later — or the other way round —
+  // leaves the repair effect above one render in which the id it is looking
+  // at does not exist yet, and it faithfully repairs it back to whatever was
+  // selected before. That is why a new page used not to open, and why a
+  // rename bounced to the top of its section. Both setState calls sit in one
+  // synchronous block, so React batches them into a single render.
+  const mutate = async (fn, apply = () => {}) => {
+    try {
+      const result = await fn()
+      const tree = await api.tree()
+      setSections(tree)
+      apply(result)
+      setError('')
+    } catch (e) {
+      setError(e.message)
+      await refresh()
+    }
   }
 
-  const addSection = () => run(async () => {
-    const s = await api.createSection('New section')
-    setActiveSectionId(s.id)
-    setActivePageId(null)
-  })
+  const addSection = () => mutate(
+    () => api.createSection('New section'),
+    (created) => {
+      setActiveSectionId(created.id)
+      setActivePageId(null)
+      // The sidebar stays open: a new section is empty, so the next thing
+      // wanted is the + Page button sitting right next to it.
+    },
+  )
 
-  const addPage = (kind) => run(async () => {
-    const created = await api.createPage(
-      activeSectionId, kind === 'drawing' ? 'Untitled drawing' : 'Untitled Page', kind
-    )
-    setActivePageId(created.id)
-    setPage(created)
-    // A brand new page is the one moment the sidebar is not what you want to
-    // look at, but hiding it here would also hide the page you just made in
-    // its list — so it stays, and the first tap in the body maximizes.
-  })
+  const addPage = (kind) => mutate(
+    () => api.createPage(
+      activeSectionId, kind === 'drawing' ? 'Untitled drawing' : 'Untitled Page', kind,
+    ),
+    (created) => {
+      setActivePageId(created.id)
+      setPage(created)
+      // A new page is made to be written in, so it opens the way it will be
+      // used: selected, and with the sidebar out of the way. That matters
+      // most for a drawing, where the lists cost the canvas a third of an
+      // iPad. The ⤡ button in the top bar brings the lists back.
+      setSidebarOpen(false)
+    },
+  )
 
   const deleteSection = (s) => {
     if (!confirm(`Delete “${s.name}” and every page in it?`)) return
-    run(() => api.deleteSection(s.id))
+    mutate(() => api.deleteSection(s.id))
   }
 
   const deletePage = (p) => {
     if (!confirm(`Delete “${p.title}”?`)) return
-    run(async () => {
-      await api.deletePage(p.id)
+    mutate(() => api.deletePage(p.id), () => {
+      // Cleared against the fresh tree, so the repair lands on a page that
+      // still exists rather than briefly re-opening the one just deleted.
       if (p.id === activePageId) { setActivePageId(null); setPage(null) }
     })
   }
@@ -120,25 +146,23 @@ export default function App() {
 
   // A rename moves the file, so the id changes with it and the selection has
   // to follow — otherwise the editor would be pointing at a path that is gone.
-  const renamePage = async (p, title) => {
-    try {
-      const updated = await api.updatePage(p.id, { title })
+  // A 409, when another page already owns that filename, surfaces in the
+  // banner instead of leaving the sidebar silently out of step with the title.
+  const renamePage = (p, title) => mutate(
+    () => api.updatePage(p.id, { title }),
+    (updated) => {
       if (p.id === activePageId) { setActivePageId(updated.id); setPage(updated) }
-      setError('')
-    } catch (e) {
-      // e.g. a 409 when another page already owns that filename — surface it
-      // instead of leaving the sidebar silently out of step with the title.
-      setError(e.message)
-    }
-    await refresh()
-  }
+    },
+  )
 
-  const renameSection = (s, name) => run(async () => {
-    const updated = await api.updateSection(s.id, { name })
-    if (s.id === activeSectionId) setActiveSectionId(updated.id)
-  })
+  const renameSection = (s, name) => mutate(
+    () => api.updateSection(s.id, { name }),
+    (updated) => {
+      if (s.id === activeSectionId) setActiveSectionId(updated.id)
+    },
+  )
 
-  const recolorSection = (s, color) => run(() => api.updateSection(s.id, { color }))
+  const recolorSection = (s, color) => mutate(() => api.updateSection(s.id, { color }))
 
   return (
     <div className={`notes-app ${sidebarOpen ? '' : 'collapsed'}`}>

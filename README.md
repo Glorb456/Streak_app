@@ -33,7 +33,9 @@ notes/      Streak Notes — a second, independent app (see notes/README.md)
   the ones scheduled for that weekday; past days are tinted green when every
   task due that day was completed, and progressively redder the more were
   missed. A day with nothing scheduled is left untinted and carries the streak
-  through rather than breaking it.
+  through rather than breaking it. A newly added daily task is ticked off
+  automatically on every day before the one you added it on, so starting a new
+  habit never costs you the streak you already have.
 - **Task order**: new tasks land at the top of their day, and a day can be
   reordered by hand — drag the ☰ handle at the right of a row on mobile, or
   drag the card itself on the desktop calendar (there is no handle there). The

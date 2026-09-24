@@ -392,6 +392,9 @@ button { font: inherit; color: inherit; }
   padding: 0 0 6px;
   margin-bottom: 10px;
 }
+/* The title sits exactly where a writing hand rests, so it gets the same
+   treatment as the toolbar: no tap flash from a contact the gate refused. */
+.md-title { -webkit-tap-highlight-color: transparent; }
 .md-title:focus { outline: none; border-bottom: 1px solid var(--line); }
 .md-title::placeholder { color: #5a5a5a; }
 
@@ -534,6 +537,11 @@ h6.md-h, .md-input.k-heading.lvl6 { font-size: 17px; font-weight: 600; padding-t
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  /* Last line of the palm defence: whatever slips past the gate in
+     DrawingPage must at least not flash a grey box over the tool it
+     landed on. The .tool.on state is the real feedback here, and it
+     survives this. */
+  -webkit-tap-highlight-color: transparent;
 }
 .tool-group { display: flex; align-items: center; gap: 4px; }
 .tool-group.pencils { gap: 2px; }

@@ -28,6 +28,17 @@ const DateIcon = () => (
   </svg>
 )
 
+// Nearest ancestor that actually scrolls vertically. `display: contents` on the
+// narrow layout's wrappers is why this walks the tree instead of naming a
+// class: which element is the scroller changes with the breakpoint.
+const scrollParent = (el) => {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p
+  }
+  return null
+}
+
 // Notion's select property: the value reads as a coloured chip and clicking it
 // drops a searchable list underneath. The menu owns its own outside-click
 // handling and swallows that mousedown, so the first click off the menu closes
@@ -77,12 +88,25 @@ function CategorySelect({ categories, value, onChange }) {
   }, [open])
 
   // The menu is absolutely positioned inside a column that can scroll; nudge
-  // that column when it opens clipped. A fully visible menu moves nothing.
+  // that column down when it opens clipped at the bottom. A fully visible menu
+  // moves nothing.
+  //
+  // Deliberately not scrollIntoView: its `inline` axis also defaults to
+  // 'nearest', so any horizontal shortfall scrolls the scroller sideways too —
+  // and both scrollers here (.modal, and .modal-picker in the wide layout) are
+  // horizontal scrollers by accident, because an overflow-y of auto makes
+  // overflow-x compute to auto as well. One pixel of overhang was enough to
+  // shove the whole modal off to the left and leave a bar of empty space down
+  // the right. Vertical only, by hand.
   useEffect(() => {
     if (!open) return
-    const id = requestAnimationFrame(() =>
-      menuRef.current?.scrollIntoView({ block: 'nearest' })
-    )
+    const id = requestAnimationFrame(() => {
+      const menu = menuRef.current
+      const scroller = menu && scrollParent(menu)
+      if (!scroller) return
+      const over = menu.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom
+      if (over > 0) scroller.scrollTop += over
+    })
     return () => cancelAnimationFrame(id)
   }, [open])
 
@@ -211,6 +235,25 @@ export default function TaskModal({ modal, categories, onSave, onLive, onDelete,
     applyLive()
     onClose()
   }
+
+  // Escape is the primary button: Close for an existing task (edits are live,
+  // so this is the same applyLive-then-dismiss), Save for a new one.
+  //
+  // Bubble phase on document, deliberately: the category menu's own Escape
+  // handler runs in the capture phase and stops propagation, so while that
+  // menu is open Escape closes the menu only and never reaches here. No
+  // dependency array — `save`/`close` close over every field, and re-binding
+  // one listener per render is cheaper than reasoning about a stale one.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      e.preventDefault()
+      if (editing) close()
+      else save()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
 
   // Read focus from the DOM rather than notesExpanded: mousedown fires before
   // focusout, so during a backdrop click the state has not caught up yet but

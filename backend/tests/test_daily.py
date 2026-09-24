@@ -1,3 +1,5 @@
+import datetime as dt
+
 D = "2026-07-15"
 
 
@@ -173,3 +175,70 @@ def test_days_mask_out_of_range_is_rejected(client):
 
 def test_list_includes_days_mask(client):
     assert all("days_mask" in d for d in client.get("/api/daily").json())
+
+
+# ---------- backfill on create ----------
+# A new daily task is checked off on every scheduled day before the day it was
+# created. The streak walk judges past days against the schedules as they
+# stand now, so without this a task added today would read as missed on every
+# day behind it and flatten a running streak. TODAY below is a Wednesday.
+TODAY = dt.date(2026, 7, 15)
+WINDOW = 400  # routers.daily.STREAK_WINDOW_DAYS
+
+
+def _create(client, **body):
+    return client.post(
+        f"/api/daily?today={TODAY.isoformat()}", json={"name": "Meditate", **body}
+    ).json()
+
+
+def _done_days(client, did, start, end):
+    rng = client.get(
+        f"/api/daily/completions?start={start.isoformat()}&end={end.isoformat()}"
+    ).json()
+    return {c["day"] for c in rng if c["daily_task_id"] == did and c["completed"]}
+
+
+def test_create_backfills_previous_days_as_done(client):
+    d = _create(client)
+    days = _done_days(client, d["id"], TODAY - dt.timedelta(days=5), TODAY)
+    assert days == {(TODAY - dt.timedelta(days=n)).isoformat() for n in range(1, 6)}
+
+
+def test_create_does_not_backfill_the_day_it_was_created(client):
+    # You still have to actually do it today.
+    d = _create(client)
+    assert _done_days(client, d["id"], TODAY, TODAY) == set()
+
+
+def test_create_backfills_only_scheduled_weekdays(client):
+    d = _create(client, days_mask=MON)
+    mondays = {TODAY - dt.timedelta(days=n) for n in (2, 9, 16)}
+    days = _done_days(client, d["id"], TODAY - dt.timedelta(days=20), TODAY)
+    assert days == {m.isoformat() for m in mondays}
+
+
+def test_create_with_an_empty_schedule_backfills_nothing(client):
+    d = _create(client, days_mask=0)
+    assert _done_days(client, d["id"], TODAY - dt.timedelta(days=30), TODAY) == set()
+
+
+def test_create_backfill_stops_at_the_streak_window(client):
+    # No streak longer than the window can be counted, so there is nothing
+    # further back worth protecting.
+    d = _create(client)
+    edge = TODAY - dt.timedelta(days=WINDOW)
+    days = _done_days(client, d["id"], edge - dt.timedelta(days=1), edge)
+    assert days == {edge.isoformat()}
+
+
+def test_create_without_a_today_still_backfills(client):
+    # An older client sends no date; the server falls back to its own.
+    d = client.post("/api/daily", json={"name": "Stretch"}).json()
+    server_today = dt.date.today()
+    days = _done_days(
+        client, d["id"], server_today - dt.timedelta(days=3), server_today
+    )
+    assert days == {
+        (server_today - dt.timedelta(days=n)).isoformat() for n in (1, 2, 3)
+    }

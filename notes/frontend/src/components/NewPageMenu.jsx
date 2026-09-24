@@ -34,7 +34,7 @@ export default function NewPageMenu({ onPick, onClose }) {
         <span className="kind-glyph">✎</span>
         <span className="kind-text">
           <strong>Hand-drawn</strong>
-          <small>Blank canvas — placeholder for now</small>
+          <small>Pencil, eraser and lasso on an endless canvas</small>
         </span>
       </button>
     </div>
